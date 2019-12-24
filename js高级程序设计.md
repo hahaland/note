@@ -150,4 +150,116 @@ null和对象会返回object,function虽然是对象，但为了更好区分返�
   + Boolean(false) && Boolean(false) 为true，对象转boolean为true
 
 ### String
- + substr
++ slice(a,b): a是开始位置，b是长度，a,b为负数都转化为len + b
++ substr(a,b): 和slice的不同是b为负数时b = 0
++ substring(a,b): a是开始位置, b是结束位置，a>b时等价于substring（b,a）,负数会转为0
++ trim(): 删除两边的空格（还有trimLeft、trimRight）
++ toLowerCase()、toUpperCase: 大小写
++ 正则相关：match()和RegExp的参数相反，结果一样；replace、search
++ fromChartCode()，将编码转为字符
+
+## 单体内置对象
+
+ECMAScript提供的，不依赖宿主环境的，在程序执行前就存在的对象
+
+### Global对象
+
++ uri编码：
+  + encodeURI(): 不会对本身属于uri（如：/ : #）编码
+  + encodeURIComponent(): 对所有特殊字符编码
+  + decodeURI()、 decodeURIComponent(): 解码
+
++  eval(): 执行参数中的代码，作用域与eval一致。（存在代码注入的风险）
++ window
++ Math
+
+# 第六章 面向对象的程序设计
+
+## 理解对象
+
+ ### 属性类型
+  + 数据属性
+    + Configurable： 是否能删除属性、修改writable（设为false后无法再设为true）
+    + Enumerable： 是否可以通过for in遍历
+    + Writable： 是否能修改属性的值
+    
+      ```code
+        let person = {}
+        // 不传参数时 configurable、enumerable、writabl默认为false
+        Object.defineProperty(person, 'name',{
+          configurable: false,
+          enumerable: false,
+          value: 'peter'
+        })
+      ```
+  + 访问器属性
+    + writable和value替换为setter、getter
+    + 只指定getter则属性无法修改
+    > vue的数据绑定通过defineProperty的getter和setter实现，因此只支持ie9+
+  
+  + **Object.getOwnPropertyDiscriptor()** 可以获取对象属性的*数据属性*和*访问器属性*
+
+### 创建对象
+为了解决创建很多同类型对象产生的重复代码，诞生了工厂模式
+ #### 工厂模式
+ 将创建对象封装在函数中
+ ```code
+  function createPerson (name, age, job){
+    var o = new Object()
+    o.name = name
+    o.age = age
+    o.job = job
+    o.sayName = function(){
+      console.log(this.name)
+    }
+    return o
+  }
+ ```
+ > 虽然可以大量创建对象，但无法识别对象类型
+
+ #### 构造函数模式
+```code
+  function Person (name, age, job){
+    this.name = name
+    this.age = age
+    this.job = job
+    this.sayName = function(){
+      console.log(this.name)
+    }
+  }
+  var person1 = new Person("peter", "12", "student")
+
+  person1 instanceof Person // true
+  person1 instanceof Object // true
+  person1.constructor == Person // true
+  person1.constructor == Object // false
+```
+与工厂模式的不同
++ 没有显式创建对象 （new操作符创建了对象）
++ 赋值this （此时this指向new的新对象）
++ 无需return
++ 为了区别其他函数，Person首字母大写
++ 可以通过instanceof识别对象类型（constructor只能识别创建的类，不能识别原型链上的父类）
+
+> 当构造函数里有如sayName的方法时会重复创建，而这也是不必要的，但把方法转移到外部又违背了封装的初衷，因此出现了原型模式
+
+#### 原型模式
+
+每个函数都有prototype（原型）属性，所有通过同个函数创建的对象都享有prototype里的方法和属性，因此
+```code
+function Person() {}
+Person.prototype.name = 'peter'
+Person.prototype.sayName = function (){console.log(this.name)}
+```
+无需函数内部创建属性即可共用name和sayName
+
+##### 原型对象
+
+
+
+
+
+
+
+
+
