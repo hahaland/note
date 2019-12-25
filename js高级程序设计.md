@@ -239,13 +239,20 @@ ECMAScript提供的，不依赖宿主环境的，在程序执行前就存在的�
 + 赋值this （此时this指向new的新对象）
 + 无需return
 + 为了区别其他函数，Person首字母大写
-+ 可以通过instanceof识别对象类型（constructor只能识别创建的类，不能识别原型链上的父类）
++ 可以通过instanceof识别对象类型（constructor只能识别创建的类，不能识别原型链上的父类，且重写原型对象会改变constructor）
++ 箭头函数无法作为构造函数使用
+
+通过new操作符调用构造函数时实际发生的步骤：
+1. 创建对象
+2. this指向新对象
+3. 执行构造函数
+4. 返回新对象
 
 > 当构造函数里有如sayName的方法时会重复创建，而这也是不必要的，但把方法转移到外部又违背了封装的初衷，因此出现了原型模式
 
 #### 原型模式
 
-每个函数都有prototype（原型）属性，所有通过同个函数创建的对象都享有prototype里的方法和属性，因此
+每个函数都有prototype（原型）属性，所有通过同个函数创建的对象都享有prototype里的方法和属性，通过__proto__访问，因此
 ```code
 function Person() {}
 Person.prototype.name = 'peter'
@@ -254,6 +261,163 @@ Person.prototype.sayName = function (){console.log(this.name)}
 无需函数内部创建属性即可共用name和sayName
 
 ##### 原型对象
+
+新函数都会拥有prototype属性，指向函数的原型对象，而原型对象会获得constructor属性，指向新函数
+```code
+  person.prototype.constructor // Person
+```
+
++ **isPrototypeOf** 确认是否是对象的原型；**Object.getPrototypeOf** 获取对象原型（可用于实现继承）
++ 当原型与实例存在同名属性时，原型的被屏蔽
++ obj.**hasOwnProperty()** 可以判断属性是否存在于实例
++ Object.**keys(obj)** 可以获取obj中可迭代属性名并返回数组
++ Object.**getOwnPropertyNames(obj)** 获取所有属性名并返回数组
+
+##### 重写原型对象
+批量定义原型属性
+```code
+  person.property = { 
+    name：'',
+    age: 0,
+    sayName: () => {}
+  }
+```
+此时对象的constructor，即person.property.constructor为Object，因此使用instanceOf较为保险（但也可以在对象中定义constructor属性）
+
+#### 动态原型模式
+构造函数用于构建实例属性，原型模式用于创建公共属性，但两者分开创建离封装还差点意思
+```code
+function Person() {
+  if(typeof this.sayName != 'function')
+    Person.prototype.sayName = () =>{}
+}
+```
+这样只会初次执行时初始化sayName
+
+#### 寄生构造函数模式
+
+```code
+function SpecialArray (){
+    let arr = new Array(...arguments)
+    arr.fn = function() {
+      return this.join("|")
+    }
+    return o
+}
+var arr = new SpecialArray(1,2,3)
+arr.fn() // 1|2|3
+```
+不修改原生类型的构造函数，并自定义方法属性，缺点是对象类型还是原来的类型，无法通过instanceOf确定类型
+
+#### 稳妥构造函数模式
+> 稳妥对象: 没有公共属性，其方法也不引用this；适合在一些安全的环境中
+```code
+function Person (name){
+    var o = new Object()
+    o.getName = function() {
+      return name
+    }
+    o.setName = function(v) {
+      name = v
+    }
+    return o
+}
+```
+通过闭包封装属性方法，相当于私有变量,通过getter和setter访问设置。
+
+## 继承
+
+### 原型链
+*构造函数的prototype->原型对象<-实例的__proto__*
+```code
+function SuperType() {
+  this.property = true
+}
+SuperType.prototype.getSuperValue = function() {
+  return this.property
+}
+function SubType(){
+  this.subProperty = false
+}
+// 重新制定SubType原型对象，在subType.prototype添加方法相当于子类的定义
+SubType.prototype = new SuperType()
+
+SubType.prototype.getSubValue = function() {
+  return this.subProperty
+}
+
+var instance = new SubType()
+console.log(instance.getSuperValue)
+```
+
+由于原型搜索机制，js寻找属性时会沿着原型链一路往上，才得以实现继承，因此原型链末端一定是Object，而**对象的constructor也是通过原型链获取的**，此时instance的constructor为SuperType。
+> 因此，确定原型与实例间的关系得使用instanceOf或isPrototypeOf
+
+### 原型链中引用类型的继承
+
+引用类型修改会影响所有原型，可以通过**借用构造函数**,在子类型构造函数中调用超类的构造函数创建引用类型的副本(构造函数本质是在当前作用域新建对象添加属性并返回，只要用call或apply把超类的作用域设为this)，单纯使用这种模式存在无法复用的问题
+```code
+function SubType(){
+  SuperType.call(this)
+}
+```
+
+### 组合继承
+
+原型链和借用构造函数共用互补的模式
+```code
+function SuperType(name){
+  this.arr = [1,2,3]
+  this.name = name
+}
+
+SuperType.prototype.sayName = function(){}
+
+function SubType(name,age){
+  SuperType.call(this, name)
+  this.age = age
+}
+
+SubType.prototype = new SuperType()
+SubType.prototype.constructor = SubType
+```
+
+### 原型式继承
+创建一个临时的构造函数，将传入的对象作为原型，返回临时构造函数实例化的对象
+```code
+function object(o) {
+  function F(){
+  }
+  F.prototype = o
+  return new F()
+}
+```
+> es5里的**Object.create()** 也是如此，不过多了第二个参数，可以传入自定义的属性对象。本质是对传入对象的浅复制
+
+### 寄生式继承
+原型式继承后在对象上添加方法并返回对象，并将这个过程封装
+
+### 寄生组合式继承
+>组合继承存在调用两次超类构造函数的情况，，第一次是改变子类原型的时候，第二次是在创建对象时子类构造方法调用call，寄生组合式可以解决这个问题
+
+思想是不在改变子类原型时调用超类构造函数，因为只需要继承超类原型里的属性和方法，所以通通过object()创建超类原型副本，代替超类构造函数返回的对象。
+
+```code
+  function inheritPrototyoe(subType, superType){
+    var prototype = object(superType.prototype) // 创建超类原型副本
+    prototype.constructor = subType
+    subType.prototype = prototype
+  }
+```
+
+这种方式是实现基于类型继承最有效的方式
+
+
+
+
+
+
+
 
 
 
