@@ -285,7 +285,7 @@ Person.prototype.sayName = function (){console.log(this.name)}
 此时对象的constructor，即person.property.constructor为Object，因此使用instanceOf较为保险（但也可以在对象中定义constructor属性）
 
 #### 动态原型模式
-构造函数用于构建实例属性，原型模式用于创建公共属性，但两者分开创建离封装还差点意思
+构造函数中构建实例属性，并动态判断是否定义公共属性
 ```code
 function Person() {
   if(typeof this.sayName != 'function')
@@ -400,7 +400,8 @@ function object(o) {
 ### 寄生组合式继承
 >组合继承存在调用两次超类构造函数的情况，，第一次是改变子类原型的时候，第二次是在创建对象时子类构造方法调用call，寄生组合式可以解决这个问题
 
-思想是不在改变子类原型时调用超类构造函数，因为只需要继承超类原型里的属性和方法，所以通通过object()创建超类原型副本，代替超类构造函数返回的对象。
+思想是不在改变子类原型时调用超类构造函数，因为只需要继承超类原型里的属性和方法，
+所以通过object()创建超类原型副本，代替超类构造函数返回的对象。
 
 ```code
   function inheritPrototyoe(subType, superType){
@@ -412,18 +413,75 @@ function object(o) {
 
 这种方式是实现基于类型继承最有效的方式
 
+# 第七章 函数表达式
+## 递归
+  在函数内部再次调用函数,arguments.callee可以防止函数引用变化寻找不到函数
+  ```code
+  function factorial(num){
+    if(num<=1){
+      return 1
+    } else {
+      return num * arguments.callee(num-1)
+    }
+  }
+  ```
+## 闭包
+```code
+function fn(name) {
+  return function(){
+    return name
+  }
+}
 
+var a = fn('peter')
+a()
+a = null
+```
+函数内部定义的函数会将包含函数的活动对象添加到作用域链，函数被返回后，活动对象仍然被引用，因此传入的name不会销毁,直到解除引用，这也是闭包可能导致内存占用过多的原因
 
+活动对象中存放的变量是可变的，若要保存每个阶段的值，可以使用闭包创建不同的活动对象
+```
+function createFn() {
+  let result = []
+  for(var i = 0;i<10;i++){
+    result[i] = function(num){
+      return function(){return num}
+    }(i) // 执行函数创建了活动对象，此时result里的i都是不同的
+  }
+  return result
+}
+```
 
+### 私有变量
 
+在构造函数内创建变量和方法，并在this添加一个访问内部变量的方法，这种方法称为**特权方法**
 
+### 静态私有变量
+ 通过私有作用域中创建变量，并在原型定义访问变量的方法即可创建。
+ ```
+ (function(){
+   var privateName = 0
+   Person.prototype.getName = function() {
+     return privateName
+   }
+ })
+ ```
+ ## 模块模式
 
+ # 第八章 BOM
 
+ ## window对象
 
+ ### 全局作用域
+ + 全局变量与window上直接定义对象的区别是全局变量无法删除（configurable为false）
 
+ ### 窗口关系及框架
 
+ window.frames，页面中框架（frame/iframe）的集合
++ top对象指向最外层框架，即浏览器窗口，window只是当前框架的实例
++ parent对象指向上层框架，没有则等于top
 
-
-
-
-
+### 窗口位置
++ ie、safari、opera、chrome：screenLeft和secreenTop
++ firefox、chrome、safari：screenX和screenY
++
