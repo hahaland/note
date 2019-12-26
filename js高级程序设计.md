@@ -350,12 +350,12 @@ var instance = new SubType()
 console.log(instance.getSuperValue)
 ```
 
-由于原型搜索机制，js寻找属性时会沿着原型链一路往上，才得以实现继承，因此原型链末端一定是Object，而**对象的constructor也是通过原型链获取的**，此时instance的constructor为SuperType。
+由于原型搜索机制，js寻找属性时会沿着原型链一路往上，才得以实现继承，因此原型链末端一定是Object，而**对象的constructor也是通过原型链获取的**，此时instance的constructor为SuperType，适用公共属性方法的继承。
 > 因此，确定原型与实例间的关系得使用instanceOf或isPrototypeOf
 
 ### 原型链中引用类型的继承
 
-引用类型修改会影响所有原型，可以通过**借用构造函数**,在子类型构造函数中调用超类的构造函数创建引用类型的副本(构造函数本质是在当前作用域新建对象添加属性并返回，只要用call或apply把超类的作用域设为this)，单纯使用这种模式存在无法复用的问题
+为了区分原型与继承对象的引用类型变量，可以通过**借用构造函数**,在子类型构造函数中调用超类的构造函数创建引用类型的副本(构造函数本质是在当前作用域新建对象添加属性并返回，只要用call或apply把超类的作用域设为this)，适用于实例属性方法的继承。
 ```code
 function SubType(){
   SuperType.call(this)
@@ -405,13 +405,21 @@ function object(o) {
 
 ```code
   function inheritPrototyoe(subType, superType){
-    var prototype = object(superType.prototype) // 创建超类原型副本
+    var prototype = object(superType.prototype) // 创建超类原型副本，替代原来的new SuperType()
     prototype.constructor = subType
     subType.prototype = prototype
   }
 ```
 
 这种方式是实现基于类型继承最有效的方式
+
+### 总结
+继承思路：
+1. 创建超类，公共方法添加到原型（原型链）
+2. 创建子类
+3. 子类原型指向超类实例，获取超类的实例属性和公共属性（实例属性指每个实例都单独拥有的属性，包括方法）
+4. 但指向超类实例，超类中的实例属性是共用的，成为了公共属性，因此需要借用构造函数模式，在子类构造函数中调用超类构造函数，相当于java的super（到此则完成了组合继承）
+5. 然而组合继承存在调用两次超类构造方法的问题，而第三步的超类实例中的实例属性已经通过第四步得到，只剩下超类原型中的方法，因此使用寄生式继承 *（即通过新建构造函数，将函数原型指向超类原型（原型式继承），并将构造函数的constructor指向子类（惯例，虽然这个属性好像没什么用））*，创建了一个拥有超类原型方法的构造函数，子类的原型指向它，此为寄生组合式继承。
 
 # 第七章 函数表达式
 ## 递归
@@ -484,4 +492,76 @@ function createFn() {
 ### 窗口位置
 + ie、safari、opera、chrome：screenLeft和secreenTop
 + firefox、chrome、safari：screenX和screenY
-+
++ moveTo,移动到指定位置；moveBy移动指定距离（可能会被浏览器禁用，且不适用与框架）
+
+### 窗口大小
+
++ 视口大小：
+  + window.innerWidth/innerHeight (ie9+)
+  + document.documentElement.clientHeight/clientWidth(ie6 标准模式)
+  + document.body.clientHeight/clientWidth(ie6 混杂模式)
+  + resizeTo/resizeBy 调整浏览器窗口大小
++ 跳转页面
+ + window.open( url,target,spec,replace )，打开窗口并返回指向新窗口的引用
+    + target: 
+      + _self 替换当前页
+      + _parent 加载到父框架
+      + _top 替换任何可加载的框架集 
+      + _blank新的窗口
+    + spec： 新窗口的属性（如大小位置等）
+    + replace： 历史记录是否改为当前页
+  + window.close可以关闭窗口（当前页面为弹出的页面或窗口引用）
+
+### 系统对话框
+  + alert()：警告对话框
+  + confirm(str)： 询问对话框，返回boolean
+  + prompt： 提示输入对话框，传入提示与默认输入框的值
+
+## localtion对象
++ hash：url中#后面的字符串
++ host：域名及端口号
++ hostname：域名
++ href: 完整url
++ pathname：目录
++ port： 端口
++ protocol： 协议（http:或https）
++ search: url参数（带问号）
+这些属性都可以修改，修改后会重新加载
+### 位置操作
++ assign(url): 打开新url并生成历史记录，和修改href值一样
+
+## navigator对象
+存放浏览器信息的对象
+
+## screen对象
+获取屏幕相关的属性
+## history对象
++ go(index): 回退或前进（也可以用back和forward）
+
+<!-- # 第九章 客户端检测 -->
+# 第十章 DOM
+## 节点层次
+### Node类型
+DOM1级定义了Node接口实现DOM中的所有节点类型，nodeType表示节点类型
+
++ nodeName和nodeValue
++ childeNodes保存着子节点，为NodeList对象，不属于Array
++ parentNode：父节点
++ previosSibling/nextSibling：访问上/下一个同级节点
++ appendChild：添加子节点
++ insertBefore：添加子节点（头）
++ replaceChild（new，old）： 替换子节点
++ removeChild： 删除子节点
++ cloneNode(boolean)： 复制节点，false只复制当前节点，true则包括子节点
+
+### Document类型
++ document.documentElement指向html
++ document.body指向body
++ document.domain: 域名，可以改为上级域名，不能改为子域名
++ geElementById/getElementsByTagName/getElementsByClassName
+
+### Element类型
+基本特征
++ nodeType == 1
++ nodeName 为标签名
++ nodeValue为null
