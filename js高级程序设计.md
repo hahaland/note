@@ -729,3 +729,69 @@ addEventListener（type，option，userCapture），removeEventListener
 - preventDefault()：取消事件默认行为
 - stopImmediatePropagation(): 取消事件的进一步传递，同时阻止相同事件类型的侦听器被（dom3）
 - stopPropagation()：取消事件进一步传递
+
+## 内存和性能
+
+### 事件委托
+利用冒泡，在最外层指定一个总的事件处理程序，减少事件绑定。
+
+### 移除事件处理程序
+使用innerHtml时只清除节点并没有清除事件，需要手动删除
+
+## 模拟事件
+```
+//创建事件对象
+var event = document.createEvent('MouseEvents')
+//初始化事件
+event.initMouseEvent('click', true,true,document.defaultView,0,0,0,0,0,false,false,false,false,0,null) // 事件类型 是否冒泡 是否可取消  关联视图 detail screenX screenY clientX clientY 是否按下ctrl 是否按下alt 是否按下shift 是否按下meta 按下哪个鼠标键(整数) 与事件相关的对象（只在模拟mouseover和mouseout时使用）
+
+btn.dispatchEvent(event) // 触发事件
+```
+
+# 表单
+## 表单的基础知识
+- acceptCharset ： 服务器能够处理的字符集
+- action：接受请求的URL
+- elements：表单控件集合
+- enctype： 请求的编码类型
+- length： 表单控件数量
+- method： http请求类型，get或post
+- name： 表单名称
+- reset()： 将表单重置为默认值
+- submit()： 提交表单
+- target： 发送请求和接受响应的窗口目标
+
+获取表单元素的方式
+- 通过getElement获取
+- document.forms[index]
+- document.forms[name]
+
+### 提交表单
+点击提交时可通过绑定submit事件判断参数，通过preventDefault阻止表单提交
+
+### 重置表单
+设置按钮或input的type为reset，触发时会恢复页面刚加载完毕是的初始值
+
+### 表单字段
+表单元素拥有额外的elements属性，为表单字段集合，可以通过name获取一类表单字段。
+#### 共有的表单字段属性
+- disabled： 当前字段是否被禁用
+- form： 指向所属表单
+- name： 表单字段名称
+- readOnly： 是否只读
+- tabIndex： 当前字段切换序号
+- type： 字段类型，如checkbox、radio
+- value： 提交给服务器的值。对文件字段来说只读。
+
+#### 选择文本
+
+获取焦点并全选
+```
+var selectBox = document.forms[0].elements['location']
+selectBox.select()
+```
+
+
+#### 过滤输入
+html5文本字段有pattern属性，可以设置正则
+
