@@ -110,6 +110,7 @@ add({commit}){
 ### 分发action
 
 action通过store.dispatch触发
+
 ```store.dispatch('add')```
 
 ## Module
@@ -142,16 +143,121 @@ const store = new Vuex.Store({
   }
 })
 ```
-默认情况下模块中的action、mutation 和 getter为全局属性，命名空间可以设置为局部属性
+默认情况下模块中的action、mutation 和 getter为全局属性，
+设置命名空间```namespaced:true```则为局部属性；getter第三个参数可以获取根状态
 ```javascript
 modules:{
   a:{
     namespaced: true,
     state,
     getters: {
-      getA() {...} // getters['a/getA']
+      getA(state, getters, rootState) {
+        return rootState.num + 1
+      } // getters['a/getA']
     }
   }
 }
 ```
-> 我的理解是，mutation负责修改状态，action是为了修改状态需要做的事
+
+在命名空间中注册全局action，需要设置```root:true```，并在handler中定义action
+```javascript
+actions: {
+  someAction: {
+    root: true,
+    handler(namespacedContext, payload){...}
+  }
+}
+```
+
+模块map方法的批量导入: 将相同模块的路径抽出
+```javascript
+computed: {
+  ...mapState('some/nested/module', {
+    a: state => state.a,
+    b: state => state.b
+  })
+},
+methods: {
+  ...mapActions('some/nested/module', [
+    'foo', // -> this.foo()
+    'bar' // -> this.bar()
+  ])
+}
+```
+
+```createNamespacedHelpers``` 可以创建特定命名空间的批量导入方法
+```javascript
+import { createNamespacedHelpers } from 'vuex'
+const { mapState, mapActions } = createNamespacedHelpers('some/nested/module')
+```
+
+### 模块的动态注册
+
+store创建后，可以使用```store.registerModule```方法注册模块：
+```javascript
+import { createNamespacedHelpers } from 'vuex'
+const { mapState, mapActions } = createNamespacedHelpers('some/nested/module')
+```
+```store.unregisterModule(moduleName)``` 可卸载动态模块
+
+### 模块重用
+当需要创建一个模块多个实例时，为了避免对象浅复制造成引用同个实例：
+```javascript
+const module = {
+  state() {
+    return {
+      num: 0
+    }
+  }
+  // mutation等类似
+}
+```
+
+
+## 项目结构
+
+使用vuex需要遵守以下规则：
+- store
+- 只能通过mutation改变状态。
+- 异步逻辑使用action
+```
+├── index.html
+├── main.js
+├── api
+│   └── ... # 抽取出API请求
+├── components
+│   ├── App.vue
+│   └── ...
+└── store
+    ├── index.js          # 我们组装模块并导出 store 的地方
+    ├── actions.js        # 根级别的 action
+    ├── mutations.js      # 根级别的 mutation
+    └── modules
+        ├── cart.js       # 购物车模块
+        └── products.js   # 产品模块
+```
+
+## 插件
+
+store接受plugins选项，为一个函数。接受store为唯一参数:
+```javascript
+const myPlugin = store => {
+  // 当 store 初始化后调用
+  store.subscribe(mutation, state) =>{
+    // 每次 mutation 之后调用
+    // mutation 的格式为 { type, payload }
+    if(mutation.type == 'UPDATE_DATA'){
+      socket.emit('update',mutation.payload)
+    }
+  }
+}
+
+const store = new Vuex.Store ({
+  plugins: [myPlugin]
+})
+```
+
+## 严格模式
+不是由mutation发起的状态变更都会抛出错误
+
+**不要在严格模式启用**，严格模式的深度检测状态数会有性能损耗。

@@ -517,7 +517,7 @@ function createFn() {
   + confirm(str)： 询问对话框，返回boolean
   + prompt： 提示输入对话框，传入提示与默认输入框的值
 
-## localtion对象
+## location对象
 + hash：url中#后面的字符串
 + host：域名及端口号
 + hostname：域名
