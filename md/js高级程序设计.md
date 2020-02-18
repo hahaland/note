@@ -145,6 +145,7 @@ null和对象会返回object,function虽然是对象，但为了更好区分返�
 
 
 和引用类型区别： 不通过包装类型声明的值，调用包装类型方法执行时被创建，使用完后销毁
+> 需要注意的是，包装类型调用的是new Object(),而不是new String等基础类型，因为Symbol和BigInt无法使用这种方式创建。
 
 ### Boolean
   + Boolean(false) && Boolean(false) 为true，对象转boolean为true
@@ -158,6 +159,16 @@ null和对象会返回object,function虽然是对象，但为了更好区分返�
 + 正则相关：match()和RegExp的参数相反，结果一样；replace、search
 + fromChartCode()，将编码转为字符
 
+### Symbol
+
+> Symbol和BigInt为es6新增对象，无法通过new创建基本类型（其他基础类型可以但不建议这么做，历史遗留问题）
+
+```Symbol(description)```会动态生成一个匿名的唯一值，能作为对象属性的标识符,description只是这个值得描述，不影响symbol的值
+特性：
+- 不会自动转换为String
+- ```Symbol("Sym") == Symbol("Sym")```为false，每个值都是唯一的
+- 跨文件，甚至跨域的Symbol，可以通过Symbol.for()或Symbol.keyFor()从全局的symbol注册表获取和设置symbol
+- ```Object.getOwnPropertySymbols(obj)```可以获取对象里所有的Symbol属性并返回一个数组。
 ## 单体内置对象
 
 ECMAScript提供的，不依赖宿主环境的，在程序执行前就存在的对象
