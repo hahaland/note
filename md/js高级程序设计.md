@@ -263,7 +263,7 @@ ECMAScript提供的，不依赖宿主环境的，在程序执行前就存在的�
 
 #### 原型模式
 
-每个函数都有prototype（原型）属性，所有通过同个函数创建的对象都享有prototype里的方法和属性，通过__proto__访问，因此
+每个函数都有prototype（原型）属性，所有通过同个函数创建的对象（即实例）都享有prototype里的方法和属性，通过__proto__访问，因此
 ```code
 function Person() {}
 Person.prototype.name = 'peter'
