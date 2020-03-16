@@ -13,8 +13,8 @@
 
 > XSS攻击一般都是通过闭合标签，来插入script标签或者js脚本，也能往通过css的expression来执行恶意代码
 
-### 解决方法：
-  - 对表单输入进行过滤（比如转义库处理html标签，过滤javascript://），
+### 基本解决方法：
+  - 对表单输入进行过滤（比如转义库处理html标签，过滤javascript://），而且应该在页面显示时过滤
   - 使用vue/react时避免使用v-html/dangerouslySetInnerHTML
   - dom中的内联事件（如location、onclick、onerror等） ，js中的eval等方法会把字符串解析成代码，需要注意这些地方的数据传递
 
