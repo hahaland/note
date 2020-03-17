@@ -8,17 +8,20 @@
 
 网页中的表单输入被服务器长期储存且返回在网页中，会攻击所有访问当前网页的用户。
 
-###. DOM型
+> 反射性和存储型都是服务器返回的html文本被嵌入了代码
+
+### DOM型
 前端的js代码没有对不可信的数据处理直接执行
 
 > XSS攻击一般都是通过闭合标签，来插入script标签或者js脚本，也能往通过css的expression来执行恶意代码
 
-### 基本解决方法：
+### 解决方法：
   - 对表单输入进行过滤（比如转义库处理html标签，过滤javascript://），而且应该在页面显示时过滤
-  - 使用vue/react时避免使用v-html/dangerouslySetInnerHTML
+  - 避免拼接 HTML：使用vue/react时避免使用v-html/dangerouslySetInnerHTML
   - dom中的内联事件（如location、onclick、onerror等） ，js中的eval等方法会把字符串解析成代码，需要注意这些地方的数据传递
+  - 通过CSP、输入长度、接口安全措施等方法增加攻击难度
+  - 使用XSS攻击扫描工具检测漏洞
 
-### XSS的检测
-
-  - 使用通用的XSS攻击字符串手动检测
-  -  
+### 注意事项
+  - 前端需要防范dom型的xss攻击，前两种因为可以伪造请求，在前端过滤没有意义
+  - 不同上下文要用不同的转义方法
