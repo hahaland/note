@@ -87,11 +87,11 @@ myBind(function () {
 }, a, [1,2,3])()
 console.log('bind', a)
 
-// Object.create(obj) 创建一个对象，其__proto__指向obj构造方法创建的新对象
+// Object.create(proto) 创建一个对象，其__proto__指向传入的原型
 
-function myCreate(obj) {
+function myCreate(proto) {
   let res = {}
-  res.__proto__ = new obj.__proto__.constructor()
+  res.__proto__ = proto
   return res
 }
 console.log('create',myCreate(new A()).a)
