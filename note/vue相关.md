@@ -12,8 +12,13 @@
 - beforeDestroy：实例销毁前调用
 - destroyed： 实例销毁后调用（实例销毁：清理与其他实例的链接，子实例的销毁，解绑与dom的联系）
 
-## 数据双向绑定的实现
+## 数据响应式的实现
 核心有三点：
 - observe：Object.defineProperty()来定义getter和setter。
 - dep： 每个属性都有自己的消息订阅器dep，通过getter收集订阅这个属性的观察者，属性变化时会通过setter通知收集到的观察者
-- watcher： 观察者，收到属性变化的通知后执行回调
+- watcher： 观察者，通过$watch触发getter，订阅该属性。
+
+
+## 知识点
+- data中的属性能通过this.key直接访问是因为设置了代理 ```proxy(vm, `_data`, key)```
+- 数组响应式是因为用代理原型，创建对应的数组方法并加上vue的监听
