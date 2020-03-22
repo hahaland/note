@@ -17,15 +17,15 @@ class A {
   constructor() {
     this.a = 1
   }
-  aMethod(){}
+  aMethod() { }
 }
 
-class Achild extends A{
+class Achild extends A {
   constructor() {
     super()
     this.achild = 1
   }
-  aChildMethod(){}
+  aChildMethod() { }
 }
 let a = new Achild()
 console.log('instanceof', myInstanceOf(a, A))
@@ -61,7 +61,7 @@ function myApply(fn, obj, arr) {
   delete obj.fn
 }
 function myBind(fn, obj, arr) {
-  return function() {
+  return function () {
     obj.fn = fn
     obj.fn(...arr)
     delete obj.fn
@@ -78,13 +78,13 @@ console.log('call', a)
 a = {}
 myApply(function () {
   this.a = 1
-}, a, [1,2,3])
+}, a, [1, 2, 3])
 console.log('apply', a)
 
 a = {}
 myBind(function () {
   this.a = 1
-}, a, [1,2,3])()
+}, a, [1, 2, 3])()
 console.log('bind', a)
 
 // Object.create(proto) 创建一个对象，其__proto__指向传入的原型
@@ -94,4 +94,36 @@ function myCreate(proto) {
   res.__proto__ = proto
   return res
 }
-console.log('create',myCreate(new A()).a)
+console.log('create', myCreate(new A()).a)
+
+function deepCopy(target) {
+  let obj
+  // 是否是数组
+  if (Array.isArray(target)) {
+    obj = []
+    for (let i = 0; i < target.length; i++) {
+      obj[i] = deepCopy(target[i])
+    }
+  } else if (target instanceof Object) {// 是否是对象
+    // 空对象直接赋值
+    obj = {}
+    for (let key in target) {
+      obj[key] = deepCopy(target[key])
+    }
+  } else {
+    obj = target
+  }
+  return obj
+}
+
+let target = {
+  arr: [1, 2, {
+    arr: [1, {}]
+  }],
+  o: {
+    o_arr: [1, 2, 3]
+  },
+  num: 1,
+  str: 'asd'
+}
+console.log('deepcopy', deepCopy(target))
