@@ -16,4 +16,8 @@
             );
         }
     ```
+- 表单元素通常由state维护，通过绑定元素value与监听变化同步（相当于`v-model`），也能用ref的方式绑定表单减少代码，但不容易维护（`React.createRef`）
 
+- react中的props可以是任何的值，可以约定props的属性，传jsx实现插槽slot的功能。
+
+- 
