@@ -30,16 +30,19 @@
 如果要使用，需要注意一些问题：
 - 派生state在内部也有方法触发更新，调试时难以确定更改源头。
 
-### 组件设计
+## 组件设计
 - 设计组件时，重要的是确定组件是受控（通过父组件的props控制）还是非受控的（组件内的state可以自行变化）。
 - 尽量实现一个受控的组件，由父组件的props统一控制，可以在父组件中管理`state.drafValue`和`state.committedValue`来控制子组件的值。
 - 不受控的组件更新
     - 可以绑定key（比如id），key改变时相当于初始化state
     - 只更改某些字段
     - 使用ref
-- 当底层
 
-## render prop
+## 组件复用
+### 组合
+通过porps传递jsx来组合组件，相当于插槽
+
+### render prop
 > 组合组件的缺点是没法使用父组件的数据，这时可以使用render prop将参数传入
 
 Mouse组件接受一个render参数，一个可以返回组件的函数，比如
@@ -73,8 +76,28 @@ Mouse组件接受一个render参数，一个可以返回组件的函数，比如
 ```
 Mouse执行render在自己内部渲染外部的组件，还能将需要的参数传入，实现复用。
 
-> 需要注意的是，每次父组件重新渲染，匿名函数都不一样，所以会重新生成组件，所以Mouse组件继承`PureComponent`时并没有用，可以在Mousetracker中定义一个函数，比如`renderCat`；而当没法定义一个静态的函数时，就应该重新定义组件
+> 需要注意的是，每次父组件重新渲染，匿名函数都不一样，所以会重新生成组件，所以Mouse组件继承`PureComponent`时并没有用，可以在Mousetracker中定义一个函数，比如`renderCat`；而当props不是静态的，就应该继承React.component。
+
+> render props一般用来封装一些公共行为（比如浏览器相关的鼠标点击），更关注功能的实现，组件的state供传入的子组件任意组装。
+### HOC
+高阶组件
 
 ## Context
+创建一个组件树的上下文，方便不同层级的组件访问一样的数据，使用的场景有管理当前locale theme等
+- React.createContext(value), 创建上下文，value为默认值，返回一个包含Provider和Consumer组件的对象，通过render prop传入组件
+- 可以给组件添加`contextType`，在组件中通过`this.context`调用
+- 可以在context中加入回调函数来通知顶层修改context
+- 设置`Context.displayName`便于在devtool中查看
+- context的变化触发Consumer的刷新不受`shouldComponents`的影响
 
-
+## 错误边界
+设置错误边界可以捕获子组件的js错误（不包括自己的错误/异步操作/事件错误），渲染备用 ui
+- 设置`static getDeviceStateFromError()`控制显示备用ui
+    ```js
+        static getDerivedStateFromError(error) {
+            // 更新 state 使下一次渲染能够显示降级后的 UI
+            return { hasError: true };
+        }
+    ```
+- 设置`componentDidCatch()`处理错误信息
+- React 16之后，发生错误的组件树会被整个移除
