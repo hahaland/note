@@ -84,7 +84,34 @@ Mouse执行render在自己内部渲染外部的组件，还能将需要的参数
 高阶组件，一个将组件转换为新组件的函数
 - 不修改传入的组件，同构将组件包装在容器中组合成新的组件
 - 使用hoc有个约定俗成的规则，
-- 
+
+### HOOK
+React 16.85的新增属性，在不编写class的情况下使用state等react特性
+#### 解决的痛点
+- 一些相关逻辑往往需要拆分在不同的生命周期函数中
+- 旧的复用组件方式需要`重新组织组件结构`，还会导致`层层嵌套`
+#### 怎么使用
+- useState会返回state和更新state的函数，和this.setState不同，useState细粒度更高，相当于创建this.state中的变量,所以每次改变都会替换原来的，而不是合并
+    ```js
+        import {useState} from 'react'
+        function example() {
+            const [count, setCount] = useState(0)
+            return (
+                <div>
+                    <p>You clicked {count} times</p>
+                    <button onClick={() => setCount(count + 1)}>Click me</button>
+                </div>
+            )
+        }
+    ```
+    点击按钮时触发setCount函数，改变state 重新渲染组件。
+- useEffect 用于执行副作用的操作（数据获取/设置订阅/手动更改 React 组件中的 DOM），可以看作是`componentDidMount`，`componentDidUpdate` 和 `componentWillUnmount` 这三个函数的组合。
+
+    useEffect返回一个函数时，react会在组件卸载时执行函数，可以用来清楚订阅
+- 自定义Hook，用来抽出重复的逻辑，必须要以use开头才能保证其中的hook运行
+- useMemo，会在渲染期间执行，仅在某个依赖改变时重新计算
+- useRef, 返回一个ref对象，可以绑定jsx中的dom，也可以绑定任何可变的值，比如`intervalRef.current = id`
+- useImperativeHandle， 
 
 ## Context
 创建一个组件树的上下文，方便不同层级的组件访问一样的数据，使用的场景有管理当前locale theme等
