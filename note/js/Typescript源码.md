@@ -47,6 +47,7 @@ typescript源码1.5g，就挑一些核心部分了解一下
 compiler目录结构
 
 ```
+  ├── factory/              封装了一些工厂方法
   ├── core.ts               工具函数
   ├── sys.ts                文件操作
   ├── types.ts              类型定义
@@ -57,10 +58,10 @@ compiler目录结构
   ├── binder.ts             作用域分析
   ├── checker.ts            类型检查
   ├── transformer.ts        代码转换
-  ├── transformers/          代码转换
+  ├── transformers/         代码转换
   ├── emitter.ts            生成文件
-  ├── tsbuild.ts            
-  ├── tsbuildPublic.ts  
+  ├── tsbuild.ts            存放ts构建过程的状态类型
+  ├── tsbuildPublic.ts      ts构建的方法（包括构建、监听，错误处理）
   ├── visitorPublic.ts  
   ├── watch.ts              监听日志相关
   ├── watchPublic.ts        监听日志相关
