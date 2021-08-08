@@ -74,6 +74,8 @@ compiler目录结构
 
 ## ts编译流程
 ### 词法分析
+词法分析的代码在scanner.ts中，首先ts会执行scan方法开始扫描，然后根据字符类型
+
 代码文件本质上是一个字符串，包括空格、字母、符号、汉字等各种字符，我们可以将一个文件当成一篇文章，而一行行代码就是一个语句，而一个个变量和关键字就是一个个单词。
 
 举个例子：
@@ -81,7 +83,12 @@ compiler目录结构
 var b = 1
 var a = b >= 1
 ```
-首先我们需要读懂字符，才能组成单词，借助‘字典’，我们就能知道字符代表的意义：
+
+#### 组词
+组词的代码主要在scanner.ts中，顾名思义，在扫描字符串过程中组成单词。
+在组词前，首先需要了解以下类和方法
+##### 1、CharacterCodes - 字符集
+
 ```typescript
 /**
  *  src/compiler/types.ts
@@ -105,14 +112,17 @@ export const enum CharacterCodes {
         // 各类字符(略)
 }
 ```
-
-比如说判断一个数字
+##### 2、 判断类型的方法
+比如判断数字`isDigit`
 ```typescript
+/**
+ *  src/compiler/scanner.ts
+*/
 function isDigit(ch: number): boolean {  // 参数 ch 表示一个编码值
     return ch >= CharacterCodes._0 && ch <= CharacterCodes._9;
 }
 ```
-判断是否是空格
+判断是否是空格`isWhiteSpaceLike`
 ```typescript
 export function isWhiteSpaceLike(ch: number): boolean {
     return isWhiteSpaceSingleLine(ch) || isLineBreak(ch);
@@ -136,9 +146,106 @@ export function isWhiteSpaceSingleLine(ch: number): boolean {
         ch === CharacterCodes.byteOrderMark;
 }
 ```
-其他字符类似，不再赘述，接下来开始判断单词
-#### 判断标识符
-通过`isUnicodeIdentifierStart` 判断第一个字符是否符合规范，剩下的字符由`isUnicodeIdentifierPart`判断
+其他字符类似，不再赘述
+
+##### 3、SyntaxKind - 单词类型
+指明单词属于哪种类型，比如数字、变量、空格、操作符等等
+```typescript
+export const enum SyntaxKind {
+        Unknown,
+        EndOfFileToken,
+        NewLineTrivia,
+        WhitespaceTrivia,
+        NumericLiteral,
+        BigIntLiteral,
+        StringLiteral,
+        JsxText,
+        Identifier, // 标识符
+        //...
+}
+```
+
+#### 4、 scan方法
+scan方法，读取若干个字符，返回单词类型
+```typescript
+function scan(): SyntaxKind{
+    while(true){
+        // pos开始位置 end结束位置
+        if (pos >= end) {
+            // 遍历完成结束循环
+            return token = SyntaxKind.EndOfFileToken;
+        }
+
+        // 获取字符
+        const ch = codePointAt(text, pos);
+
+        // 执行对应字符类型的方法
+        switch(ch){
+            // 数字类型
+            case CharacterCodes._0:
+                if (pos + 2 < end && (text.charCodeAt(pos + 1) === CharacterCodes.X || text.charCodeAt(pos + 1) === CharacterCodes.x)) {
+                    // 16进制
+                    pos += 2;
+                    // scanMinimumNumberOfHexDigits 会读取后续字符组成16进制数
+                    tokenValue = scanMinimumNumberOfHexDigits(1, /*canHaveSeparators*/ true);
+                    if (!tokenValue) {
+                        // 取不到值时就会抛出错误Diagnostics.Hexadecimal_digit_expected 
+                        // 值为diag(1125, ts.DiagnosticCategory.Error, "Hexadecimal_digit_expected_1125", "Hexadecimal digit expected.")，即IDE的报错
+                        error(Diagnostics.Hexadecimal_digit_expected);
+                        tokenValue = "0";
+                    }
+                    return token = checkBigIntSuffix();
+                }
+                else if (pos + 2 < end && (text.charCodeAt(pos + 1) === CharacterCodes.B || text.charCodeAt(pos + 1) === CharacterCodes.b)) {
+                    //2进制
+                    // ...
+                }
+                else if (pos + 2 < end && (text.charCodeAt(pos + 1) === CharacterCodes.O || text.charCodeAt(pos + 1) === CharacterCodes.o)) {
+                    // 8进制
+                    // ...
+                }
+                // Try to parse as an octal
+                if (pos + 1 < end && isOctalDigit(text.charCodeAt(pos + 1))) {
+                    // 8进制 08
+
+                }
+            case CharacterCodes._1:
+            case CharacterCodes._2:
+            case CharacterCodes._3:
+            case CharacterCodes._4:
+            case CharacterCodes._5:
+            case CharacterCodes._6:
+            case CharacterCodes._7:
+            case CharacterCodes._8:
+            case CharacterCodes._9:
+                ({ type: token, value: tokenValue } = scanNumber());
+                return token;
+            // ...
+            default:
+                // scanIdentifier判断是否是标识符（变量）
+                const identifierKind = scanIdentifier(ch, languageVersion);
+                if (identifierKind) {
+                    return token = identifierKind;
+                }
+                else if (isWhiteSpaceSingleLine(ch)) {
+                    pos += charSize(ch);
+                    continue;
+                }
+                else if (isLineBreak(ch)) {
+                    // 换行则读取下个字符重新开始
+                    tokenFlags |= TokenFlags.PrecedingLineBreak;
+                    pos += charSize(ch);
+                    continue;
+                }
+                const size = charSize(ch);
+                error(Diagnostics.Invalid_character, pos, size);
+                pos += size;
+                return token = SyntaxKind.Unknown;
+        }
+    }
+}
+```
+
 
 ### 语法分析
 ### 作用域分析
