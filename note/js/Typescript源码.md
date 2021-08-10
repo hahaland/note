@@ -29,7 +29,7 @@
     - 语法转换
 
 ## 项目结构
-typescript源码1.5g，就挑一些核心部分了解一下
+typescript源码1.5g，就挑一些核心部分了解一下，主要是src/compiler目录下的代码，包含了最重要的编译部分
 
 ```
 ├── bin         最终给用户用的 tsc 和 tsserver 命令
@@ -83,12 +83,17 @@ compiler目录结构
 var b = 1
 var a = b >= 1
 ```
+- 首先我们需要读取`var`，保存为一个关键字类型的单词，而且遇到空格，分词，读下个词；
+- 类似的步骤继续获取`b`、`=`、`1`
+- 遇到换行，读取下个单词，由于是`var`，前面的语句结束，创建新的语句并添加`var`
+
+上面读取字符生成单词过程称之为组词，而创建语句的过程为组句
 
 #### 组词
 组词的代码主要在scanner.ts中，顾名思义，在扫描字符串过程中组成单词。
-在组词前，首先需要了解以下类和方法
+组词过程主要设计一下代码
 ##### 1、CharacterCodes - 字符集
-
+首先得知道字符是什么字符
 ```typescript
 /**
  *  src/compiler/types.ts
@@ -113,7 +118,7 @@ export const enum CharacterCodes {
 }
 ```
 ##### 2、 判断类型的方法
-比如判断数字`isDigit`
+然后定义字符类型，比如判断数字`isDigit`
 ```typescript
 /**
  *  src/compiler/scanner.ts
@@ -146,10 +151,10 @@ export function isWhiteSpaceSingleLine(ch: number): boolean {
         ch === CharacterCodes.byteOrderMark;
 }
 ```
-其他字符类似，不再赘述
+其他字符类型类似，不再赘述
 
-##### 3、SyntaxKind - 单词类型
-指明单词属于哪种类型，比如数字、变量、空格、操作符等等
+#### 3、SyntaxKind - 单词类型
+接着就是定义多个字符组合类型，即单词类型，比如数字、变量、空格、操作符等等
 ```typescript
 export const enum SyntaxKind {
         Unknown,
@@ -166,11 +171,31 @@ export const enum SyntaxKind {
 ```
 
 #### 4、 scan方法
-scan方法，读取若干个字符，返回单词类型
+`scan`方法，是扫描单词的核心方法，以上述代码为基础，读取字符生成单词并返回单词类型
 ```typescript
+/**
+ *  src/compiler/scanner.ts
+*/
+export interface Scanner {
+    
+    private pos     // 开始位置
+    private end     // 结束位置
+    private token   // 单词类型
+    private tokenValue // 保存单次扫描过程中遇到的第一个字符类型，用于扫描时的逻辑判断（比如扫描数字时遇到）
+    scan(): SyntaxKind; // 扫描下一个标记
+    setText(text: string, start?: number, length?: number): void; // 设置当前扫描的字符串
+    getToken(): SyntaxKind; // 获取当前标记的类型
+    getStartPos(): number; // 获取当前标记的完整开始位置
+    getTokenPos(): number; // 获取当前标记的开始位置
+    getTextPos(): number; // 获取当前标记的结束位置
+    getTokenText(): string; // 获取当前标记的源码
+    getTokenValue(): string; // 获取当前标记的内容。如果标记是数字，获取计算后的值；如果标记是字符串，获取处理转义字符后的内容
+    // ...
+}
+
 function scan(): SyntaxKind{
     while(true){
-        // pos开始位置 end结束位置
+        
         if (pos >= end) {
             // 遍历完成结束循环
             return token = SyntaxKind.EndOfFileToken;
@@ -233,7 +258,7 @@ function scan(): SyntaxKind{
                 }
                 else if (isLineBreak(ch)) {
                     // 换行则读取下个字符重新开始
-                    tokenFlags |= TokenFlags.PrecedingLineBreak;
+                    tokenFlags |= TokenFlags.PrecedingLineBreak; // tokenFlags用来辅助判断，只在scanner内部使用
                     pos += charSize(ch);
                     continue;
                 }
@@ -246,9 +271,54 @@ function scan(): SyntaxKind{
 }
 ```
 
+总结： `scan`方法读取字符，通过`CharacterCodes`判断需要走哪条对应单词类型的路径，比如`isDigit`，则调用`scanNumber`方法读取完整数字，最后设置tokenValue并返回单词类型`SyntaxKind`
 
 ### 语法分析
+获得一个个单词后，我们需要进行语法分析，才能组合成一个句子，比如`php是世界上最好的语言`，可以分解为：
+```
+语法树
+├── php         名称
+├── 是          代指
+└── 语言        定义
+    ├──世界上   补充定义
+    └── 最好    补充定义
+```
+在ts中，Node保存了上述单词与结构信息，定义如下
+
+```typescript
+export interface ReadonlyTextRange {
+    // 起止位置
+    readonly pos: number;
+    readonly end: number;
+}
+export interface Node extends ReadonlyTextRange {
+        readonly kind: SyntaxKind;
+        readonly flags: NodeFlags;
+        modifierFlagsCache: ModifierFlags;
+        readonly transformFlags: TransformFlags;       // 转换标志
+        readonly decorators?: NodeArray<Decorator>;    // 装饰器数组（按文档顺序）
+        readonly modifiers?: ModifiersArray;           // 修饰符数组
+        id?: NodeId;                                   // 唯一ID（用于查找NodeLinks）
+        readonly parent: Node;                         // 父节点（通过绑定初始化）
+        original?: Node;                               // 如果这是更新的节点，则为原始节点。
+        symbol: Symbol;                                // 由节点声明的符号（binding时初始化）
+        locals?: SymbolTable;                          // 与节点关联的局部变量（binding时初始化）
+        nextContainer?: Node;                          // 声明顺序中的下一个容器（binding时初始化）
+        localSymbol?: Symbol;                          // 节点声明的局部符号（仅针对导出节点binding时初始化）
+        flowNode?: FlowNode;                           //关联的FlowNode（binding时初始化）
+        emitNode?: EmitNode;                           // 关联的 EmitNode（transforms时初始化）
+        contextualType?: Type;                         // 用于在重载解析期间临时分配上下文类型
+        inferenceContext?: InferenceContext;           // 上下文类型的推理上下文
+    }
+```
 ### 作用域分析
+binder.ts
 ### 流程分析
+binder.ts
 ### 语义分析
+checker.ts
 ### 语法转换
+transformer.ts 
+
+### 代码生成
+emitter.ts
