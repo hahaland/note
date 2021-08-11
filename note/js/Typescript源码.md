@@ -274,17 +274,81 @@ function scan(): SyntaxKind{
 总结： `scan`方法读取字符，通过`CharacterCodes`判断需要走哪条对应单词类型的路径，比如`isDigit`，则调用`scanNumber`方法读取完整数字，最后设置tokenValue并返回单词类型`SyntaxKind`
 
 ### 语法分析
+
+#### 什么是语法树
 获得一个个单词后，我们需要进行语法分析，才能组合成一个句子，比如`php是世界上最好的语言`，可以分解为：
 ```
-语法树
+语句
 ├── php         名称
 ├── 是          代指
 └── 语言        定义
     ├──世界上   补充定义
     └── 最好    补充定义
 ```
-在ts中，Node保存了上述单词与结构信息，定义如下
+而一篇文章的结构又由很多语句组成,而且某个概念可能引用了其他文章的内容
+```
+文章
+├── 语句         
+├── 语句         
+├── 语句
+|      └── a
+└── 语句（注明a来源的语句）
+```
+typescript编译时，会把代码分解成类似上面的结构，称之为语法树：
 
+```javascript
+sourceFile // 源文件
+├── 语句节点    //  import react from 'React'
+|       ├── 类型节点    (import)
+|       ├── 类型节点    (react)
+|       ├── 类型节点    (from)
+|       └── 类型节点    ('React')
+├── 语句节点  react
+├── 语句节点  // var a = 1 + 1
+|       ├── 类型节点    (var)
+|       ├── 类型节点    (a)
+|       ├── 类型节点    (=)
+|       └── 表达式节点  (1+1)
+|               ├── 类型节点 1
+|               ├── 类型节点 +
+|               └── 类型节点 1
+├── 其它节点    //  比如case   
+└── 语句节点    (import react from "React") 
+```
+其中，节点分成四大类：
+- 类型节点 TypeNode
+- 表达式节点 Expression
+- 语句节点 Statement
+- 其他节点
+
+而得出这个语法树由`compiler/parser.ts`文件负责
+
+#### 语法树的生成过程
+
+##### 1、入口
+`createSourceFile`是开始解析语法树的入口，传入文件名
+```typescript
+export function createSourceFile(fileName: string, sourceText: string, languageVersion: ScriptTarget, setParentNodes = false, scriptKind?: ScriptKind): SourceFile {
+    tracing?.push(tracing.Phase.Parse, "createSourceFile", { path: fileName }, /*separateBeginAndEnd*/ true);
+    performance.mark("beforeParse");
+    let result: SourceFile;
+
+    perfLogger.logStartParseSourceFile(fileName);
+    if (languageVersion === ScriptTarget.JSON) {
+        result = Parser.parseSourceFile(fileName, sourceText, languageVersion, /*syntaxCursor*/ undefined, setParentNodes, ScriptKind.JSON);
+    }
+    else {
+        result = Parser.parseSourceFile(fileName, sourceText, languageVersion, /*syntaxCursor*/ undefined, setParentNodes, scriptKind);
+    }
+    perfLogger.logStopParseSourceFile();
+
+    performance.mark("afterParse");
+    performance.measure("Parse", "beforeParse", "afterParse");
+    tracing?.pop();
+    return result;
+}
+```
+节点`Node`结构如下：
 ```typescript
 export interface ReadonlyTextRange {
     // 起止位置
@@ -309,6 +373,7 @@ export interface Node extends ReadonlyTextRange {
         emitNode?: EmitNode;                           // 关联的 EmitNode（transforms时初始化）
         contextualType?: Type;                         // 用于在重载解析期间临时分配上下文类型
         inferenceContext?: InferenceContext;           // 上下文类型的推理上下文
+        // ......
     }
 ```
 ### 作用域分析
