@@ -181,7 +181,7 @@ export interface Scanner {
     private pos     // 开始位置
     private end     // 结束位置
     private token   // 单词类型
-    private tokenValue // 保存单次扫描过程中遇到的第一个字符类型，用于扫描时的逻辑判断（比如扫描数字时遇到）
+    private tokenValue // 单词值
     scan(): SyntaxKind; // 扫描下一个标记
     setText(text: string, start?: number, length?: number): void; // 设置当前扫描的字符串
     getToken(): SyntaxKind; // 获取当前标记的类型
@@ -328,26 +328,138 @@ sourceFile // 源文件
 ##### 1、入口
 `createSourceFile`是开始解析语法树的入口，传入文件名
 ```typescript
+
+export const enum Phase {
+    Parse = "parse",
+    Program = "program",
+    Bind = "bind",
+    Check = "check", // Before we get into checking types (e.g. checkSourceFile)
+    CheckTypes = "checkTypes",
+    Emit = "emit",
+    Session = "session",
+}
 export function createSourceFile(fileName: string, sourceText: string, languageVersion: ScriptTarget, setParentNodes = false, scriptKind?: ScriptKind): SourceFile {
-    tracing?.push(tracing.Phase.Parse, "createSourceFile", { path: fileName }, /*separateBeginAndEnd*/ true);
-    performance.mark("beforeParse");
+    
+    tracing?.push(tracing.Phase.Parse, "createSourceFile", { path: fileName }, /*separateBeginAndEnd*/ true); // parse阶段
+    performance.mark("beforeParse"); // performance 性能监测
     let result: SourceFile;
 
     perfLogger.logStartParseSourceFile(fileName);
+    // ScriptKind 标识文件类型（ts、js、json、jsx）
     if (languageVersion === ScriptTarget.JSON) {
         result = Parser.parseSourceFile(fileName, sourceText, languageVersion, /*syntaxCursor*/ undefined, setParentNodes, ScriptKind.JSON);
     }
     else {
         result = Parser.parseSourceFile(fileName, sourceText, languageVersion, /*syntaxCursor*/ undefined, setParentNodes, scriptKind);
     }
-    perfLogger.logStopParseSourceFile();
+    
+    /* 略 */
 
-    performance.mark("afterParse");
-    performance.measure("Parse", "beforeParse", "afterParse");
-    tracing?.pop();
     return result;
 }
 ```
+可以看出，其中的核心方法是`parseSourceFile`
+
+```typescript
+export function parseSourceFile(fileName: string, sourceText: string, languageVersion: ScriptTarget, syntaxCursor: IncrementalParser.SyntaxCursor | undefined, setParentNodes = false, scriptKind?: ScriptKind): SourceFile {
+
+    /* 略 */
+
+    // 初始化
+    initializeState(fileName, sourceText, languageVersion, syntaxCursor, scriptKind);
+
+    // parseSourceFileWorker 读取单词解析语句
+    const result = parseSourceFileWorker(languageVersion, setParentNodes, scriptKind);
+
+    clearState();
+
+    return result;
+}
+
+function initializeState(_fileName: string, _sourceText: string, _languageVersion: ScriptTarget, _syntaxCursor: IncrementalParser.SyntaxCursor | undefined, _scriptKind: ScriptKind) {
+    // 初始化构造函数
+    NodeConstructor = objectAllocator.getNodeConstructor();
+    TokenConstructor = objectAllocator.getTokenConstructor();
+    IdentifierConstructor = objectAllocator.getIdentifierConstructor();
+    PrivateIdentifierConstructor = objectAllocator.getPrivateIdentifierConstructor();
+    SourceFileConstructor = objectAllocator.getSourceFileConstructor();
+
+    fileName = normalizePath(_fileName);
+    sourceText = _sourceText;
+    languageVersion = _languageVersion; // es版本
+    syntaxCursor = _syntaxCursor; // 增量解析，用于重复解析源码的性能优化
+    scriptKind = _scriptKind; // 文件类型（js ts jsx json...）
+
+    parseDiagnostics = [];
+    parsingContext = 0;
+    identifiers = new Map<string, string>(); // 存放单词字符串的引用，节省内存
+    /* 略 */
+    switch (scriptKind) {
+        case ScriptKind.JS:
+        case ScriptKind.JSX:
+            contextFlags = NodeFlags.JavaScriptFile;
+            break;
+        case ScriptKind.JSON:
+            contextFlags = NodeFlags.JavaScriptFile | NodeFlags.JsonFile;
+            break;
+        default:
+            contextFlags = NodeFlags.None;
+            break;
+    }
+    parseErrorBeforeNextFinishedNode = false;
+
+    // 初始化scanner
+    scanner.setText(sourceText);
+    scanner.setOnError(scanError);
+    scanner.setScriptTarget(languageVersion);
+}
+
+function parseSourceFileWorker(languageVersion: ScriptTarget, setParentNodes: boolean, scriptKind: ScriptKind): SourceFile {
+    const isDeclarationFile = isDeclarationFileName(fileName);
+    if (isDeclarationFile) {
+        contextFlags |= NodeFlags.Ambient;
+    }
+
+    sourceFlags = contextFlags;
+
+    // 获取单词 nextToken中会调用scan方法
+    nextToken();
+
+    // 解析语句列表 ParsingContext存放语句（Statment）类型
+    const statements = parseList(ParsingContext.SourceElements, parseStatement);
+    Debug.assert(token() === SyntaxKind.EndOfFileToken);
+    const endOfFileToken = addJSDocComment(parseTokenNode<EndOfFileToken>());
+
+    const sourceFile = createSourceFile(fileName, languageVersion, scriptKind, isDeclarationFile, statements, endOfFileToken, sourceFlags);
+
+    // A member of ReadonlyArray<T> isn't assignable to a member of T[] (and prevents a direct cast) - but this is where we set up those members so they can be readonly in the future
+    processCommentPragmas(sourceFile as {} as PragmaContext, sourceText);
+    processPragmasIntoFields(sourceFile as {} as PragmaContext, reportPragmaDiagnostic);
+
+    sourceFile.commentDirectives = scanner.getCommentDirectives();
+    sourceFile.nodeCount = nodeCount;
+    sourceFile.identifierCount = identifierCount;
+    sourceFile.identifiers = identifiers;
+    sourceFile.parseDiagnostics = attachFileToDiagnostics(parseDiagnostics, sourceFile);
+    if (jsDocDiagnostics) {
+        sourceFile.jsDocDiagnostics = attachFileToDiagnostics(jsDocDiagnostics, sourceFile);
+    }
+
+    if (setParentNodes) {
+        fixupParentReferences(sourceFile);
+    }
+
+    return sourceFile;
+
+    function reportPragmaDiagnostic(pos: number, end: number, diagnostic: DiagnosticMessage) {
+        parseDiagnostics.push(createDetachedDiagnostic(fileName, pos, end, diagnostic));
+    }
+}
+
+
+```
+
+
 节点`Node`结构如下：
 ```typescript
 export interface ReadonlyTextRange {
@@ -358,7 +470,6 @@ export interface ReadonlyTextRange {
 export interface Node extends ReadonlyTextRange {
         readonly kind: SyntaxKind;
         readonly flags: NodeFlags;
-        modifierFlagsCache: ModifierFlags;
         readonly transformFlags: TransformFlags;       // 转换标志
         readonly decorators?: NodeArray<Decorator>;    // 装饰器数组（按文档顺序）
         readonly modifiers?: ModifiersArray;           // 修饰符数组
