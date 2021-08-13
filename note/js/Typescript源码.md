@@ -425,7 +425,7 @@ function parseSourceFileWorker(languageVersion: ScriptTarget, setParentNodes: bo
     // 获取单词 nextToken中会调用scan方法
     nextToken();
 
-    // 解析语句列表 ParsingContext存放语句（Statment）类型
+    // parseList使用传入的方法解析列表 parseStatement是解析语句的方法
     const statements = parseList(ParsingContext.SourceElements, parseStatement);
     Debug.assert(token() === SyntaxKind.EndOfFileToken);
     const endOfFileToken = addJSDocComment(parseTokenNode<EndOfFileToken>());
@@ -455,7 +455,19 @@ function parseSourceFileWorker(languageVersion: ScriptTarget, setParentNodes: bo
         parseDiagnostics.push(createDetachedDiagnostic(fileName, pos, end, diagnostic));
     }
 }
-
+function parseStatement(): Statement {
+    switch (token()) {
+        case SyntaxKind.SemicolonToken: // 分号
+            return parseEmptyStatement();
+        case SyntaxKind.VarKeyword: // var关键字
+            return parseVariableStatement(getNodePos(), hasPrecedingJSDocComment(), /*decorators*/ undefined, /*modifiers*/ undefined);
+        case SyntaxKind.FunctionKeyword: // function关键字
+            return parseFunctionDeclaration(getNodePos(), hasPrecedingJSDocComment(), /*decorators*/ undefined, /*modifiers*/ undefined);
+        /* 略 */
+    }
+    // 都没有则解析成表达式或
+    return parseExpressionOrLabeledStatement();
+}
 
 ```
 
