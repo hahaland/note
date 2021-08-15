@@ -23,11 +23,9 @@
 - 编译过程
     - 词法分析
     - 语法分析
-    - 作用域分析
-    - 流程分析
-    - 语义分析
+    - 作用域分析、流程分析、语义分析
     - 语法转换
-
+- 类型检查
 ## 项目结构
 typescript源码1.5g，就挑一些核心部分了解一下，主要是src/compiler目录下的代码，包含了最重要的编译部分
 
@@ -48,6 +46,8 @@ compiler目录结构
 
 ```
   ├── factory/              封装了一些工厂方法
+  ├── build.ts              入口
+  ├── program.ts            ts方法集成
   ├── core.ts               工具函数
   ├── sys.ts                文件操作
   ├── types.ts              类型定义
@@ -67,12 +67,12 @@ compiler目录结构
   ├── watchPublic.ts        监听日志相关
   ├── watchUtilities.ts     监听日志相关
   ├── visitorPublic.ts      访问ts内部对象的方法
-  ├── program.ts
   └── ...
   
 ```
 
 ## ts编译流程
+program.ts 中的`createProgram`为入口方法，其中会执行`createCompilerHostWorker`，触发编译流程，还有代码检查
 ### 词法分析
 词法分析的代码在scanner.ts中，首先ts会执行scan方法开始扫描，然后根据字符类型
 
@@ -358,24 +358,24 @@ export function createSourceFile(fileName: string, sourceText: string, languageV
     return result;
 }
 ```
-可以看出，其中的核心方法是`parseSourceFile`
 
+可以看出，其中的核心方法是`parseSourceFile`
 ```typescript
 export function parseSourceFile(fileName: string, sourceText: string, languageVersion: ScriptTarget, syntaxCursor: IncrementalParser.SyntaxCursor | undefined, setParentNodes = false, scriptKind?: ScriptKind): SourceFile {
-
     /* 略 */
-
     // 初始化
     initializeState(fileName, sourceText, languageVersion, syntaxCursor, scriptKind);
 
-    // parseSourceFileWorker 读取单词解析语句
+    // parseSourceFileWorker 开始解析
     const result = parseSourceFileWorker(languageVersion, setParentNodes, scriptKind);
 
+    //清除状态
     clearState();
 
     return result;
 }
 
+// 初始化一些构造函数、文件相关的信息（格式、es版本）、解析过程中的缓存变量、初始化scanner
 function initializeState(_fileName: string, _sourceText: string, _languageVersion: ScriptTarget, _syntaxCursor: IncrementalParser.SyntaxCursor | undefined, _scriptKind: ScriptKind) {
     // 初始化构造函数
     NodeConstructor = objectAllocator.getNodeConstructor();
@@ -388,12 +388,13 @@ function initializeState(_fileName: string, _sourceText: string, _languageVersio
     sourceText = _sourceText;
     languageVersion = _languageVersion; // es版本
     syntaxCursor = _syntaxCursor; // 增量解析，用于重复解析源码的性能优化
-    scriptKind = _scriptKind; // 文件类型（js ts jsx json...）
+    scriptKind = _scriptKind; // 文件格式（js ts jsx json...）
 
     parseDiagnostics = [];
     parsingContext = 0;
     identifiers = new Map<string, string>(); // 存放单词字符串的引用，节省内存
     /* 略 */
+    //判断文件类型
     switch (scriptKind) {
         case ScriptKind.JS:
         case ScriptKind.JSX:
@@ -414,99 +415,88 @@ function initializeState(_fileName: string, _sourceText: string, _languageVersio
     scanner.setScriptTarget(languageVersion);
 }
 
+// 开始解析
 function parseSourceFileWorker(languageVersion: ScriptTarget, setParentNodes: boolean, scriptKind: ScriptKind): SourceFile {
-    const isDeclarationFile = isDeclarationFileName(fileName);
-    if (isDeclarationFile) {
-        contextFlags |= NodeFlags.Ambient;
-    }
-
-    sourceFlags = contextFlags;
 
     // 获取单词 nextToken中会调用scan方法
     nextToken();
-
-    // parseList使用传入的方法解析列表 parseStatement是解析语句的方法
+    // parseList使用传入的方法解析列表，调用parseStatement解析语句，返回nodeList
     const statements = parseList(ParsingContext.SourceElements, parseStatement);
-    Debug.assert(token() === SyntaxKind.EndOfFileToken);
-    const endOfFileToken = addJSDocComment(parseTokenNode<EndOfFileToken>());
 
+    // 内部方法，调用了nodeFactory中的createSourceFile，会创建一个根结点挂载statements和其他信息
     const sourceFile = createSourceFile(fileName, languageVersion, scriptKind, isDeclarationFile, statements, endOfFileToken, sourceFlags);
-
-    // A member of ReadonlyArray<T> isn't assignable to a member of T[] (and prevents a direct cast) - but this is where we set up those members so they can be readonly in the future
-    processCommentPragmas(sourceFile as {} as PragmaContext, sourceText);
-    processPragmasIntoFields(sourceFile as {} as PragmaContext, reportPragmaDiagnostic);
-
-    sourceFile.commentDirectives = scanner.getCommentDirectives();
-    sourceFile.nodeCount = nodeCount;
-    sourceFile.identifierCount = identifierCount;
-    sourceFile.identifiers = identifiers;
-    sourceFile.parseDiagnostics = attachFileToDiagnostics(parseDiagnostics, sourceFile);
-    if (jsDocDiagnostics) {
-        sourceFile.jsDocDiagnostics = attachFileToDiagnostics(jsDocDiagnostics, sourceFile);
-    }
-
-    if (setParentNodes) {
-        fixupParentReferences(sourceFile);
-    }
-
+    /* 略 */
     return sourceFile;
-
-    function reportPragmaDiagnostic(pos: number, end: number, diagnostic: DiagnosticMessage) {
-        parseDiagnostics.push(createDetachedDiagnostic(fileName, pos, end, diagnostic));
-    }
 }
+
+function parseList<T extends Node>(kind: ParsingContext, parseElement: () => T): NodeArray<T> {
+    const saveParsingContext = parsingContext;
+    parsingContext |= 1 << kind;
+    const list = [];
+    const listPos = getNodePos();
+
+    // 文件未结束时循环
+    while (!isListTerminator(kind)) {
+        // 如果是语句开头
+        if (isListElement(kind, /*inErrorRecovery*/ false)) {
+            const element = parseListElement(kind, parseElement);
+            list.push(element);
+
+            continue;
+        }
+
+        // 否则abortParsingListOrMoveToNextToken会抛出错误，然后继续解析
+        if (abortParsingListOrMoveToNextToken(kind)) {
+            break;
+        }
+    }
+
+    parsingContext = saveParsingContext;
+    return createNodeArray(list, listPos);
+}
+```
+
+这就是语法树的大致解析流程，其实就是根据语句开头的单词类型选择对应的方法解析，而具体的解析，举个例子，比如解析变量声明（`var a,b = 1`）
+
+```typescript
+// 解析语句
 function parseStatement(): Statement {
-    switch (token()) {
+    switch (token()) { // 获取当前单词类型
         case SyntaxKind.SemicolonToken: // 分号
             return parseEmptyStatement();
         case SyntaxKind.VarKeyword: // var关键字
-            return parseVariableStatement(getNodePos(), hasPrecedingJSDocComment(), /*decorators*/ undefined, /*modifiers*/ undefined);
+            return parseVariableStatement(getNodePos(), /* 前面是否有JSDoc注释 */ hasPrecedingJSDocComment(), /*decorators*/ undefined, /*modifiers*/ undefined);
         case SyntaxKind.FunctionKeyword: // function关键字
             return parseFunctionDeclaration(getNodePos(), hasPrecedingJSDocComment(), /*decorators*/ undefined, /*modifiers*/ undefined);
+        case ...
         /* 略 */
     }
-    // 都没有则解析成表达式或
+    // 都没有则解析成表达式或标签语句
     return parseExpressionOrLabeledStatement();
 }
 
-```
-
-
-节点`Node`结构如下：
-```typescript
-export interface ReadonlyTextRange {
-    // 起止位置
-    readonly pos: number;
-    readonly end: number;
+// 解析var语句
+function parseVariableStatement(pos: number, hasJSDoc: boolean, decorators: NodeArray<Decorator> | undefined, modifiers: NodeArray<Modifier> | undefined): VariableStatement {
+    // parseVariableDeclarationList方法会解析剩下的单词
+    const declarationList = parseVariableDeclarationList(/*inForStatementInitializer*/ false);
+    parseSemicolon();
+    // 创建定义变量语句节点
+    const node = factory.createVariableStatement(modifiers, declarationList);
+    node.decorators = decorators;
+    // withJSDoc 添加注释 finishNode设置node剩下的一些属性
+    return withJSDoc(finishNode(node, pos), hasJSDoc);
 }
-export interface Node extends ReadonlyTextRange {
-        readonly kind: SyntaxKind;
-        readonly flags: NodeFlags;
-        readonly transformFlags: TransformFlags;       // 转换标志
-        readonly decorators?: NodeArray<Decorator>;    // 装饰器数组（按文档顺序）
-        readonly modifiers?: ModifiersArray;           // 修饰符数组
-        id?: NodeId;                                   // 唯一ID（用于查找NodeLinks）
-        readonly parent: Node;                         // 父节点（通过绑定初始化）
-        original?: Node;                               // 如果这是更新的节点，则为原始节点。
-        symbol: Symbol;                                // 由节点声明的符号（binding时初始化）
-        locals?: SymbolTable;                          // 与节点关联的局部变量（binding时初始化）
-        nextContainer?: Node;                          // 声明顺序中的下一个容器（binding时初始化）
-        localSymbol?: Symbol;                          // 节点声明的局部符号（仅针对导出节点binding时初始化）
-        flowNode?: FlowNode;                           //关联的FlowNode（binding时初始化）
-        emitNode?: EmitNode;                           // 关联的 EmitNode（transforms时初始化）
-        contextualType?: Type;                         // 用于在重载解析期间临时分配上下文类型
-        inferenceContext?: InferenceContext;           // 上下文类型的推理上下文
-        // ......
-    }
 ```
-### 作用域分析
-binder.ts
-### 流程分析
-binder.ts
-### 语义分析
-checker.ts
-### 语法转换
-transformer.ts 
+除此之外，一些单词类型的检测需要根据上下文判断，比如`await`，需要在`async`中使用，那前面遍历时遇到`async`就会设置允许`await`的`flag`，就会用到`doInAwaitContext`、`doInsideOfContext`方法来改变对应的`flag`;
+又或者一些单词类型，需要根据后续的单词推断，比如 `x => {...}`，在未读取 => 之前，x可以是变量，但此时x是参数，这就需要使用`lookAhead`提前获取之后的单词，这些具体的实现就不细说了
+
+### 剩下的语法分析
+binder.ts主要负责语义分析、作用域分析、流程分析，就是一行代码是什么意思、在什么范围内起作用、还有执行的顺序
+transformer.ts 负责语法转换，将新标准的语法转成对应的es标准版本
+这部分比较繁琐，就不细讲了
+### 类型推断
+类型推断，算是ts最重要的部分了，由`checker.ts`负责
+
 
 ### 代码生成
 emitter.ts
