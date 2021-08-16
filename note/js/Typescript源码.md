@@ -24,8 +24,8 @@
     - 词法分析
     - 语法分析
     - 作用域分析、流程分析、语义分析
-    - 语法转换
-- 类型检查
+- 代码检查
+- 语法转换
 ## 项目结构
 typescript源码1.5g，就挑一些核心部分了解一下，主要是src/compiler目录下的代码，包含了最重要的编译部分
 
@@ -101,19 +101,17 @@ var a = b >= 1
 export const enum CharacterCodes {
         _0 = 0x30,
         _1 = 0x31,
-        // 2-8(略)
+        // 2-8
         _9 = 0x39,
 
         a = 0x61,
-        // ...b-y(略)
+        // b-y
         z = 0x7A,
 
         A = 0x41,
-        // B-Y...(略)
+        // B-Y
         Z = 0x5a,
 
-        ampersand = 0x26,             // &
-        asterisk = 0x2A,              // *
         // 各类字符(略)
 }
 ```
@@ -171,7 +169,7 @@ export const enum SyntaxKind {
 ```
 
 #### 4、 scan方法
-`scan`方法，是扫描单词的核心方法，以上述代码为基础，读取字符生成单词并返回单词类型
+`scan`方法，是扫描单词的核心方法，以上述代码为基础，读取字符生成单词并返回单词类型，在ts中称为token标记
 ```typescript
 /**
  *  src/compiler/scanner.ts
@@ -490,11 +488,142 @@ function parseVariableStatement(pos: number, hasJSDoc: boolean, decorators: Node
 除此之外，一些单词类型的检测需要根据上下文判断，比如`await`，需要在`async`中使用，那前面遍历时遇到`async`就会设置允许`await`的`flag`，就会用到`doInAwaitContext`、`doInsideOfContext`方法来改变对应的`flag`;
 又或者一些单词类型，需要根据后续的单词推断，比如 `x => {...}`，在未读取 => 之前，x可以是变量，但此时x是参数，这就需要使用`lookAhead`提前获取之后的单词，这些具体的实现就不细说了
 
-### 剩下的语法分析
-binder.ts主要负责语义分析、作用域分析、流程分析，就是一行代码是什么意思、在什么范围内起作用、还有执行的顺序
-transformer.ts 负责语法转换，将新标准的语法转成对应的es标准版本
-这部分比较繁琐，就不细讲了
-### 类型推断
+### 语法分析
+前面的parser.ts完成了代码到语法树的分解，但语法树节点之间并没有关联起来，比如：
+```typescript
+var a = 1
+a+1
+```
+只有让两个语句的a相互关联，才能形成完整的链路，才能继续后面的代码检查，这部分的代码再`binder.ts`中;与前面的过程类似，`binder.ts`通过`createBinder`初始化，传入之前`parser`后得到的`sourceFile`，执行`bind`方法，
+``` typescript
+function bind(node: Node | undefined): void {
+    if (!node) {
+        return;
+    }
+    // 给当前节点绑定parent
+    setParent(node, parent);
+    const saveInStrictMode = inStrictMode;
+
+    // 根据节点选择对应的绑定方法
+    bindWorker(node);
+
+    if (node.kind > SyntaxKind.LastToken) {
+        const saveParent = parent;
+        parent = node;
+        const containerFlags = getContainerFlags(node);
+        if (containerFlags === ContainerFlags.None) {
+            bindChildren(node);
+        }
+        else {
+            bindContainer(node, containerFlags);
+        }
+        parent = saveParent;
+    }
+    else {
+        const saveParent = parent;
+        if (node.kind === SyntaxKind.EndOfFileToken) parent = node;
+        bindJSDoc(node);
+        parent = saveParent;
+    }
+    inStrictMode = saveInStrictMode;
+}
+```
+```typescript
+// 根据节点类型选择对应的方法
+function bindWorker(node: Node) {
+    switch (node.kind) {
+        /* Strict mode checks */
+        case SyntaxKind.Identifier:
+            // 如果在命名空间定义。
+            if ((node as Identifier).isInJSDocNamespace) {
+                let parentNode = node.parent;
+                // 需要循环找到最上层的父节点
+                while (parentNode && !isJSDocTypeAlias(parentNode)) {
+                    parentNode = parentNode.parent;
+                }
+                // 绑定在父节点
+                bindBlockScopedDeclaration(parentNode as Declaration, SymbolFlags.TypeAlias, SymbolFlags.TypeAliasExcludes);
+                break;
+            }
+        case SyntaxKind.ThisKeyword:
+            // flow 用来关联代码流程
+            if (currentFlow && (isExpression(node) || parent.kind === SyntaxKind.ShorthandPropertyAssignment)) {
+                node.flowNode = currentFlow;
+            }
+            return checkContextualIdentifier(node as Identifier);
+    }
+}
+
+function bindBlockScopedDeclaration(node: Declaration, symbolFlags: SymbolFlags, symbolExcludes: SymbolFlags) {
+    switch (blockScopeContainer.kind) {
+        case SyntaxKind.ModuleDeclaration:
+            // declareModuleMember 负责关联不同文件间的符号表，由此实现跨文件的代码检查
+            declareModuleMember(node, symbolFlags, symbolExcludes);
+            break;
+        case SyntaxKind.SourceFile:
+            if (isExternalOrCommonJsModule(container as SourceFile)) {
+                declareModuleMember(node, symbolFlags, symbolExcludes);
+                break;
+            }
+        default:
+            // 没有创建块级作用域
+            if (!blockScopeContainer.locals) {
+                // 创建符号表
+                blockScopeContainer.locals = createSymbolTable();
+                // addToContainerChain会将当前作用域与上个作用域关联lastContainer，即作用域链的实现
+                addToContainerChain(blockScopeContainer);
+            }
+            // 
+            declareSymbol(blockScopeContainer.locals, /*parent*/ undefined, node, symbolFlags, symbolExcludes);
+    }
+}
+
+
+function declareSymbol(symbolTable: SymbolTable, parent: Symbol, node: Declaration, includes: SymbolFlags, excludes: SymbolFlags): Symbol {
+    // SymbolTable 符号表，存放了当前作用域下的所有符号
+    const isDefaultExport = hasModifier(node, ModifierFlags.Default);
+
+    // The exported symbol for an export default function/class node is always named "default"
+    const name = isDefaultExport && parent ? "default" : getDeclarationName(node);
+
+    let symbol: Symbol;
+    // 根据name在symbolTable中找到相同的symbol，否则创建一个新的
+    if (name === undefined) {
+        // createSymbol负责更新symbolCount和创建symbol
+        symbol = createSymbol(SymbolFlags.None, "__missing");
+    }
+    else {
+        // 这里负责查找已有的symbol，还有判断是否有命名冲突，比如let a两次就会抛出错误
+        // ..
+    }
+    
+    // 将symbol与node关联
+    addDeclarationToSymbol(symbol, node, includes);
+    symbol.parent = parent;
+    return symbol;
+}
+
+```
+上述代码建立起了词与词之间的联系，那么执行顺序呢，比如
+```typescript
+function fn(val){
+    let res 
+    try { // 1
+        // 2
+    } catch(err){
+        // 3
+    }
+
+    return false
+}
+```
+这段代码有两条路径1 -> 2 和 1 -> 3，binder.ts会通过检测单词类型创建`flowNode`，保存在`currentFlow`中，下面的2和3部分的节点会保存`currentFlow`到`flow`属性中
+
+
+
+### 代码检查
+#### 类型推断
+
 类型推断，算是ts最重要的部分了，由`checker.ts`负责
 
 
