@@ -19,13 +19,16 @@
 - 写一个操作系统
 
 ## 进入正题
+
 - 项目结构
-- 编译过程
-    - 词法分析
-    - 语法分析
-    - 作用域分析、流程分析、语义分析
-- 代码检查
-- 语法转换
+- 编译过程 (program)
+    - 词法分析 (parse)
+    - 语法分析 (parse)
+    - 作用域分析、流程分析、语义分析 (bind)
+    - 代码检查 (check)
+    - 语法转换 (transform)
+    - 生成代码 (emit)
+
 ## 项目结构
 typescript源码1.5g，就挑一些核心部分了解一下，主要是src/compiler目录下的代码，包含了最重要的编译部分
 
@@ -38,8 +41,8 @@ typescript源码1.5g，就挑一些核心部分了解一下，主要是src/compi
 ├── src         源码
 │   ├── compiler        编译器代码（核心代码）
 │   ├── services        语言服务，主要为 VSCode 使用，比如查找定义之类的功能
-    └── ...             待补充
-└── tests       测试文件
+|   └── ...             
+└── tests       单元测试
 ```
 
 compiler目录结构
@@ -72,7 +75,6 @@ compiler目录结构
 ```
 
 ## ts编译流程
-program.ts 中的`createProgram`为入口方法，其中会执行`createCompilerHostWorker`，触发编译流程，还有代码检查
 ### 词法分析
 词法分析的代码在scanner.ts中，首先ts会执行scan方法开始扫描，然后根据字符类型
 
@@ -131,10 +133,8 @@ export function isWhiteSpaceLike(ch: number): boolean {
     return isWhiteSpaceSingleLine(ch) || isLineBreak(ch);
 }
 
-/** Does not include line breaks. For that, see isWhiteSpaceLike. */
 export function isWhiteSpaceSingleLine(ch: number): boolean {
-    // Note: nextLine is in the Zs space, and should be considered to be a whitespace.
-    // It is explicitly not a line-break as it isn't in the exact set specified by EcmaScript.
+
     return ch === CharacterCodes.space ||
         ch === CharacterCodes.tab ||
         ch === CharacterCodes.verticalTab ||
@@ -149,7 +149,6 @@ export function isWhiteSpaceSingleLine(ch: number): boolean {
         ch === CharacterCodes.byteOrderMark;
 }
 ```
-其他字符类型类似，不再赘述
 
 #### 3、SyntaxKind - 单词类型
 接着就是定义多个字符组合类型，即单词类型，比如数字、变量、空格、操作符等等
@@ -169,7 +168,7 @@ export const enum SyntaxKind {
 ```
 
 #### 4、 scan方法
-`scan`方法，是扫描单词的核心方法，以上述代码为基础，读取字符生成单词并返回单词类型，在ts中称为token标记
+`scan`方法，是扫描单词的核心方法，以上述代码为基础，读取字符生成单词并返回单词类型，在ts中也称为token标记
 ```typescript
 /**
  *  src/compiler/scanner.ts
@@ -301,7 +300,6 @@ sourceFile // 源文件
 |       ├── 类型节点    (react)
 |       ├── 类型节点    (from)
 |       └── 类型节点    ('React')
-├── 语句节点  react
 ├── 语句节点  // var a = 1 + 1
 |       ├── 类型节点    (var)
 |       ├── 类型节点    (a)
@@ -310,8 +308,7 @@ sourceFile // 源文件
 |               ├── 类型节点 1
 |               ├── 类型节点 +
 |               └── 类型节点 1
-├── 其它节点    //  比如case   
-└── 语句节点    (import react from "React") 
+├── 其它节点    //  比如switch case   
 ```
 其中，节点分成四大类：
 - 类型节点 TypeNode
@@ -324,18 +321,16 @@ sourceFile // 源文件
 #### 语法树的生成过程
 
 ##### 1、入口
+parser的运行过程大致如下
+```
+    createSourceFile ->
+        parseSourceFile ->
+            initializeState,
+            parseSourceFileWorker ->
+                parseList -> parseStatement -> parseXXXStatement 
+```
 `createSourceFile`是开始解析语法树的入口，传入文件名
 ```typescript
-
-export const enum Phase {
-    Parse = "parse",
-    Program = "program",
-    Bind = "bind",
-    Check = "check", // Before we get into checking types (e.g. checkSourceFile)
-    CheckTypes = "checkTypes",
-    Emit = "emit",
-    Session = "session",
-}
 export function createSourceFile(fileName: string, sourceText: string, languageVersion: ScriptTarget, setParentNodes = false, scriptKind?: ScriptKind): SourceFile {
     
     tracing?.push(tracing.Phase.Parse, "createSourceFile", { path: fileName }, /*separateBeginAndEnd*/ true); // parse阶段
@@ -486,7 +481,7 @@ function parseVariableStatement(pos: number, hasJSDoc: boolean, decorators: Node
 }
 ```
 除此之外，一些单词类型的检测需要根据上下文判断，比如`await`，需要在`async`中使用，那前面遍历时遇到`async`就会设置允许`await`的`flag`，就会用到`doInAwaitContext`、`doInsideOfContext`方法来改变对应的`flag`;
-又或者一些单词类型，需要根据后续的单词推断，比如 `x => {...}`，在未读取 => 之前，x可以是变量，但此时x是参数，这就需要使用`lookAhead`提前获取之后的单词，这些具体的实现就不细说了
+又或者一些单词类型，需要根据后续的单词推断，比如 `x => {...}`，在未读取 => 之前，x可以是变量，但此时x是参数，这就需要使用`lookAhead`提前获取之后的单词，具体的实现就不细说了
 
 ### 语法分析
 前面的parser.ts完成了代码到语法树的分解，但语法树节点之间并没有关联起来，比如：
@@ -495,6 +490,11 @@ var a = 1
 a+1
 ```
 只有让两个语句的a相互关联，才能形成完整的链路，才能继续后面的代码检查，这部分的代码再`binder.ts`中;与前面的过程类似，`binder.ts`通过`createBinder`初始化，传入之前`parser`后得到的`sourceFile`，执行`bind`方法，
+```javascript
+    createBinder ->
+        bindSourceFile->
+            bind
+```
 ``` typescript
 function bind(node: Node | undefined): void {
     if (!node) {
@@ -511,10 +511,13 @@ function bind(node: Node | undefined): void {
         const saveParent = parent;
         parent = node;
         const containerFlags = getContainerFlags(node);
+        // 如果没有创建容器（独立的作用域，比如块级作用域、class、method等）
         if (containerFlags === ContainerFlags.None) {
+            // 绑定子节点
             bindChildren(node);
         }
         else {
+            // 绑定container后再绑定子节点
             bindContainer(node, containerFlags);
         }
         parent = saveParent;
@@ -557,7 +560,7 @@ function bindWorker(node: Node) {
 function bindBlockScopedDeclaration(node: Declaration, symbolFlags: SymbolFlags, symbolExcludes: SymbolFlags) {
     switch (blockScopeContainer.kind) {
         case SyntaxKind.ModuleDeclaration:
-            // declareModuleMember 负责关联不同文件间的符号表，由此实现跨文件的代码检查
+            // declareModuleMember 创建模块引入的符号，以便之后的文件关联
             declareModuleMember(node, symbolFlags, symbolExcludes);
             break;
         case SyntaxKind.SourceFile:
@@ -606,25 +609,151 @@ function declareSymbol(symbolTable: SymbolTable, parent: Symbol, node: Declarati
 ```
 上述代码建立起了词与词之间的联系，那么执行顺序呢，比如
 ```typescript
-function fn(val){
+function fn(){
     let res 
-    try { // 1
-        // 2
+    try {
+        // 1
     } catch(err){
+        // 2
+    } finally{
         // 3
     }
 
-    return false
+    return res // 4
 }
 ```
-这段代码有两条路径1 -> 2 和 1 -> 3，binder.ts会通过检测单词类型创建`flowNode`，保存在`currentFlow`中，下面的2和3部分的节点会保存`currentFlow`到`flow`属性中
+`try catch`语句，`binder.ts`会通过检测关键字给节点添加`flowNode`，比如 3 部分的节点会存放两个流程，分别指向1和2
 
 
-
+ps: 这部分没太理解，就简单提一下吧
 ### 代码检查
+代码检查由`checker.ts`负责，checker的创建如下：
+```
+    createTypeChecker ->
+        initializeTypeChecker -> 返回checker
+            
+```
+
+```typescript
+function initializeTypeChecker() {
+    // 先检查
+    for (const file of host.getSourceFiles()) {
+        bindSourceFile(file, compilerOptions);
+    }
+
+    amalgamatedDuplicates = new Map();
+
+    
+    let augmentations: LiteralExpression[][]; // 存放了各种依赖
+    for (const file of host.getSourceFiles()) {
+        if (!isExternalOrCommonJsModule(file)) {
+            // 合并符号表
+            mergeSymbolTable(globals, file.locals);
+        }
+        // ...
+        // file.moduleAugmentations是在createProgram时收集的依赖
+        if (file.moduleAugmentations.length) {
+            (augmentations || (augmentations = [])).push(file.moduleAugmentations);
+        }
+
+        // augmentations里的依赖还区分全局与模块，这里不深究
+        // ...
+    }
+    // ...
+}
+```
+不过无论是哪种模块，最终都是需要调用`mergeSymbolTable`合并符号表
+
+```typescript
+function mergeSymbol(target: Symbol, source: Symbol, unidirectional = false): Symbol {
+    if (!(target.flags & getExcludedSymbolFlags(source.flags)) ||
+        (source.flags | target.flags) & SymbolFlags.Assignment) {
+        if (source === target) {
+            // This can happen when an export assigned namespace exports something also erroneously exported at the top level
+            // See `declarationFileNoCrashOnExtraExportModifier` for an example
+            return target;
+        }
+        if (!(target.flags & SymbolFlags.Transient)) {
+            const resolvedTarget = resolveSymbol(target);
+            if (resolvedTarget === unknownSymbol) {
+                return source;
+            }
+            target = cloneSymbol(resolvedTarget);
+        }
+        // Javascript static-property-assignment declarations always merge, even though they are also values
+        if (source.flags & SymbolFlags.ValueModule && target.flags & SymbolFlags.ValueModule && target.constEnumOnlyModule && !source.constEnumOnlyModule) {
+            // reset flag when merging instantiated module into value module that has only const enums
+            target.constEnumOnlyModule = false;
+        }
+        target.flags |= source.flags;
+        if (source.valueDeclaration) {
+            setValueDeclaration(target, source.valueDeclaration);
+        }
+        addRange(target.declarations, source.declarations);
+        if (source.members) {
+            if (!target.members) target.members = createSymbolTable();
+            mergeSymbolTable(target.members, source.members, unidirectional);
+        }
+        if (source.exports) {
+            if (!target.exports) target.exports = createSymbolTable();
+            mergeSymbolTable(target.exports, source.exports, unidirectional);
+        }
+        if (!unidirectional) {
+            recordMergedSymbol(target, source);
+        }
+    }
+    else if (target.flags & SymbolFlags.NamespaceModule) {
+        // Do not report an error when merging `var globalThis` with the built-in `globalThis`,
+        // as we will already report a "Declaration name conflicts..." error, and this error
+        // won't make much sense.
+        if (target !== globalThisSymbol) {
+            error(
+                source.declarations && getNameOfDeclaration(source.declarations[0]),
+                Diagnostics.Cannot_augment_module_0_with_value_exports_because_it_resolves_to_a_non_module_entity,
+                symbolToString(target));
+        }
+    }
+    else { // error
+        const isEitherEnum = !!(target.flags & SymbolFlags.Enum || source.flags & SymbolFlags.Enum);
+        const isEitherBlockScoped = !!(target.flags & SymbolFlags.BlockScopedVariable || source.flags & SymbolFlags.BlockScopedVariable);
+        const message = isEitherEnum
+            ? Diagnostics.Enum_declarations_can_only_merge_with_namespace_or_other_enum_declarations
+            : isEitherBlockScoped
+                ? Diagnostics.Cannot_redeclare_block_scoped_variable_0
+                : Diagnostics.Duplicate_identifier_0;
+        const sourceSymbolFile = source.declarations && getSourceFileOfNode(source.declarations[0]);
+        const targetSymbolFile = target.declarations && getSourceFileOfNode(target.declarations[0]);
+        const symbolName = symbolToString(source);
+
+        // Collect top-level duplicate identifier errors into one mapping, so we can then merge their diagnostics if there are a bunch
+        if (sourceSymbolFile && targetSymbolFile && amalgamatedDuplicates && !isEitherEnum && sourceSymbolFile !== targetSymbolFile) {
+            const firstFile = comparePaths(sourceSymbolFile.path, targetSymbolFile.path) === Comparison.LessThan ? sourceSymbolFile : targetSymbolFile;
+            const secondFile = firstFile === sourceSymbolFile ? targetSymbolFile : sourceSymbolFile;
+            const filesDuplicates = getOrUpdate(amalgamatedDuplicates, `${firstFile.path}|${secondFile.path}`, () =>
+                ({ firstFile, secondFile, conflictingSymbols: new Map() } as DuplicateInfoForFiles));
+            const conflictingSymbolInfo = getOrUpdate(filesDuplicates.conflictingSymbols, symbolName, () =>
+                ({ isBlockScoped: isEitherBlockScoped, firstFileLocations: [], secondFileLocations: [] } as DuplicateInfoForSymbol));
+            addDuplicateLocations(conflictingSymbolInfo.firstFileLocations, source);
+            addDuplicateLocations(conflictingSymbolInfo.secondFileLocations, target);
+        }
+        else {
+            addDuplicateDeclarationErrorsForSymbols(source, message, symbolName, target);
+            addDuplicateDeclarationErrorsForSymbols(target, message, symbolName, source);
+        }
+    }
+    return target;
+
+    function addDuplicateLocations(locs: Declaration[], symbol: Symbol): void {
+        if (symbol.declarations) {
+            for (const decl of symbol.declarations) {
+                pushIfUnique(locs, decl);
+            }
+        }
+    }
+}
+```
 #### 类型推断
 
-类型推断，算是ts最重要的部分了，由`checker.ts`负责
 
 
 ### 代码生成
