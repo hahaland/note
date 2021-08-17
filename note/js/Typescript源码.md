@@ -24,7 +24,7 @@
 - 编译过程 (program)
     - 词法分析 (parse)
     - 语法分析 (parse)
-    - 作用域分析、流程分析、语义分析 (bind)
+    - 语法绑定 (bind)
     - 代码检查 (check)
     - 语法转换 (transform)
     - 生成代码 (emit)
@@ -58,7 +58,7 @@ compiler目录结构
   ├── parser.ts             语法分析
   ├── utilities.ts          内部工具类
   ├── utilitiesPublic.ts    内部工具类
-  ├── binder.ts             作用域分析
+  ├── binder.ts             语法绑定
   ├── checker.ts            类型检查
   ├── transformer.ts        代码转换
   ├── transformers/         代码转换
@@ -168,7 +168,7 @@ export const enum SyntaxKind {
 ```
 
 #### 4、 scan方法
-`scan`方法，是扫描单词的核心方法，以上述代码为基础，读取字符生成单词并返回单词类型，在ts中也称为token标记
+`scan`方法，是扫描单词的核心方法，以上述代码为基础，读取字符生成单词并返回单词类型，单词类型在ts中也称为token标记
 ```typescript
 /**
  *  src/compiler/scanner.ts
@@ -316,6 +316,17 @@ sourceFile // 源文件
 - 语句节点 Statement
 - 其他节点
 
+node的基本结构：
+```typescript
+export interface Node extends ReadonlyTextRange {
+    readonly kind: SyntaxKind;                            // 节点类型
+    readonly decorators?: NodeArray<Decorator>;           // 装饰器
+    /* @internal */ id?: NodeId;                          
+    readonly parent: Node;                                // 父节点
+    /* @internal */ locals?: SymbolTable;                 // 符号表
+    /* @internal */ flowNode?: FlowNode;                  // 流程节点
+}
+```
 而得出这个语法树由`compiler/parser.ts`文件负责
 
 #### 语法树的生成过程
@@ -483,13 +494,15 @@ function parseVariableStatement(pos: number, hasJSDoc: boolean, decorators: Node
 除此之外，一些单词类型的检测需要根据上下文判断，比如`await`，需要在`async`中使用，那前面遍历时遇到`async`就会设置允许`await`的`flag`，就会用到`doInAwaitContext`、`doInsideOfContext`方法来改变对应的`flag`;
 又或者一些单词类型，需要根据后续的单词推断，比如 `x => {...}`，在未读取 => 之前，x可以是变量，但此时x是参数，这就需要使用`lookAhead`提前获取之后的单词，具体的实现就不细说了
 
-### 语法分析
+### 语法绑定
 前面的parser.ts完成了代码到语法树的分解，但语法树节点之间并没有关联起来，比如：
 ```typescript
 var a = 1
 a+1
 ```
-只有让两个语句的a相互关联，才能形成完整的链路，才能继续后面的代码检查，这部分的代码再`binder.ts`中;与前面的过程类似，`binder.ts`通过`createBinder`初始化，传入之前`parser`后得到的`sourceFile`，执行`bind`方法，
+两行代码都有`a`变量，只有让两个语句的a相互关联，才能形成完整的网络，才能继续后面的代码检查，这就需要`binder.ts`出场了，怎么关联的呢？
+
+首先，与前面的过程类似，`createBinder`初始化`binder`，传入之前`parser`后得到的语法树根节点`sourceFile`，执行`bind`方法，
 ```javascript
     createBinder ->
         bindSourceFile->
@@ -665,6 +678,13 @@ function initializeTypeChecker() {
 不过无论是哪种模块，最终都是需要调用`mergeSymbolTable`合并符号表
 
 ```typescript
+
+function mergeSymbolTable(target: SymbolTable, source: SymbolTable, unidirectional = false) {
+    source.forEach((sourceSymbol, id) => {
+        const targetSymbol = target.get(id);
+        target.set(id, targetSymbol ? mergeSymbol(targetSymbol, sourceSymbol, unidirectional) : sourceSymbol);
+    });
+}
 function mergeSymbol(target: Symbol, source: Symbol, unidirectional = false): Symbol {
     if (!(target.flags & getExcludedSymbolFlags(source.flags)) ||
         (source.flags | target.flags) & SymbolFlags.Assignment) {
