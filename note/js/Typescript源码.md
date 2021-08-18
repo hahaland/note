@@ -669,8 +669,7 @@ function mergeSymbol(target: Symbol, source: Symbol, unidirectional = false): Sy
     if (!(target.flags & getExcludedSymbolFlags(source.flags)) ||
         (source.flags | target.flags) & SymbolFlags.Assignment) {
         if (source === target) {
-            // This can happen when an export assigned namespace exports something also erroneously exported at the top level
-            // See `declarationFileNoCrashOnExtraExportModifier` for an example
+            //根节点
             return target;
         }
         if (!(target.flags & SymbolFlags.Transient)) {
