@@ -50,7 +50,7 @@ compiler目录结构
 ```
   ├── factory/              封装了一些工厂方法
   ├── build.ts              入口
-  ├── program.ts            ts方法集成
+  ├── program.ts            编译过程集合
   ├── core.ts               工具函数
   ├── sys.ts                文件操作
   ├── types.ts              类型定义
@@ -646,7 +646,7 @@ ps: 这部分没太理解，就简单提一下吧
         initializeTypeChecker -> 返回checker
             
 ```
-
+初始化checker
 ```typescript
 function initializeTypeChecker() {
     // 先检查
@@ -676,104 +676,72 @@ function initializeTypeChecker() {
 }
 ```
 不过无论是哪种模块，最终都是需要调用`mergeSymbolTable`合并符号表
-
 ```typescript
-
 function mergeSymbolTable(target: SymbolTable, source: SymbolTable, unidirectional = false) {
     source.forEach((sourceSymbol, id) => {
         const targetSymbol = target.get(id);
         target.set(id, targetSymbol ? mergeSymbol(targetSymbol, sourceSymbol, unidirectional) : sourceSymbol);
     });
 }
-function mergeSymbol(target: Symbol, source: Symbol, unidirectional = false): Symbol {
-    if (!(target.flags & getExcludedSymbolFlags(source.flags)) ||
-        (source.flags | target.flags) & SymbolFlags.Assignment) {
-        if (source === target) {
-            //根节点
-            return target;
-        }
-        if (!(target.flags & SymbolFlags.Transient)) {
-            const resolvedTarget = resolveSymbol(target);
-            if (resolvedTarget === unknownSymbol) {
-                return source;
-            }
-            target = cloneSymbol(resolvedTarget);
-        }
-        // Javascript static-property-assignment declarations always merge, even though they are also values
-        if (source.flags & SymbolFlags.ValueModule && target.flags & SymbolFlags.ValueModule && target.constEnumOnlyModule && !source.constEnumOnlyModule) {
-            // reset flag when merging instantiated module into value module that has only const enums
-            target.constEnumOnlyModule = false;
-        }
-        target.flags |= source.flags;
-        if (source.valueDeclaration) {
-            setValueDeclaration(target, source.valueDeclaration);
-        }
-        addRange(target.declarations, source.declarations);
-        if (source.members) {
-            if (!target.members) target.members = createSymbolTable();
-            mergeSymbolTable(target.members, source.members, unidirectional);
-        }
-        if (source.exports) {
-            if (!target.exports) target.exports = createSymbolTable();
-            mergeSymbolTable(target.exports, source.exports, unidirectional);
-        }
-        if (!unidirectional) {
-            recordMergedSymbol(target, source);
-        }
-    }
-    else if (target.flags & SymbolFlags.NamespaceModule) {
-        // Do not report an error when merging `var globalThis` with the built-in `globalThis`,
-        // as we will already report a "Declaration name conflicts..." error, and this error
-        // won't make much sense.
-        if (target !== globalThisSymbol) {
-            error(
-                source.declarations && getNameOfDeclaration(source.declarations[0]),
-                Diagnostics.Cannot_augment_module_0_with_value_exports_because_it_resolves_to_a_non_module_entity,
-                symbolToString(target));
-        }
-    }
-    else { // error
-        const isEitherEnum = !!(target.flags & SymbolFlags.Enum || source.flags & SymbolFlags.Enum);
-        const isEitherBlockScoped = !!(target.flags & SymbolFlags.BlockScopedVariable || source.flags & SymbolFlags.BlockScopedVariable);
-        const message = isEitherEnum
-            ? Diagnostics.Enum_declarations_can_only_merge_with_namespace_or_other_enum_declarations
-            : isEitherBlockScoped
-                ? Diagnostics.Cannot_redeclare_block_scoped_variable_0
-                : Diagnostics.Duplicate_identifier_0;
-        const sourceSymbolFile = source.declarations && getSourceFileOfNode(source.declarations[0]);
-        const targetSymbolFile = target.declarations && getSourceFileOfNode(target.declarations[0]);
-        const symbolName = symbolToString(source);
+```
+至此，类型推断的基础完成了
 
-        // Collect top-level duplicate identifier errors into one mapping, so we can then merge their diagnostics if there are a bunch
-        if (sourceSymbolFile && targetSymbolFile && amalgamatedDuplicates && !isEitherEnum && sourceSymbolFile !== targetSymbolFile) {
-            const firstFile = comparePaths(sourceSymbolFile.path, targetSymbolFile.path) === Comparison.LessThan ? sourceSymbolFile : targetSymbolFile;
-            const secondFile = firstFile === sourceSymbolFile ? targetSymbolFile : sourceSymbolFile;
-            const filesDuplicates = getOrUpdate(amalgamatedDuplicates, `${firstFile.path}|${secondFile.path}`, () =>
-                ({ firstFile, secondFile, conflictingSymbols: new Map() } as DuplicateInfoForFiles));
-            const conflictingSymbolInfo = getOrUpdate(filesDuplicates.conflictingSymbols, symbolName, () =>
-                ({ isBlockScoped: isEitherBlockScoped, firstFileLocations: [], secondFileLocations: [] } as DuplicateInfoForSymbol));
-            addDuplicateLocations(conflictingSymbolInfo.firstFileLocations, source);
-            addDuplicateLocations(conflictingSymbolInfo.secondFileLocations, target);
+#### 类型推断
+调用过程如下
+```
+    getDiagnostics ->
+        getDiagnosticsWorker ->
+            checkSourceFile ->
+                checkSourceFileWorker ->
+```
+其实套路基本和前面的一样，直接看worker
+```typescript
+function checkSourceFileWorker(node: SourceFile) {
+    const links = getNodeLinks(node);
+    if (!(links.flags & NodeCheckFlags.TypeChecked)) {
+        if (skipTypeChecking(node, compilerOptions, host)) {
+            return;
         }
-        else {
-            addDuplicateDeclarationErrorsForSymbols(source, message, symbolName, target);
-            addDuplicateDeclarationErrorsForSymbols(target, message, symbolName, source);
-        }
-    }
-    return target;
 
-    function addDuplicateLocations(locs: Declaration[], symbol: Symbol): void {
-        if (symbol.declarations) {
-            for (const decl of symbol.declarations) {
-                pushIfUnique(locs, decl);
-            }
+        // Grammar checking
+        checkGrammarSourceFile(node);
+
+        clear(potentialThisCollisions);
+        clear(potentialNewTargetCollisions);
+        clear(potentialWeakMapSetCollisions);
+        clear(potentialReflectCollisions);
+
+        // 检查节点
+        forEach(node.statements, checkSourceElement);
+        checkSourceElement(node.endOfFileToken);
+
+        checkDeferredNodes(node);
+
+        if (isExternalOrCommonJsModule(node)) {
+            registerForUnusedIdentifiersCheck(node);
         }
+
+        if (!node.isDeclarationFile && (compilerOptions.noUnusedLocals || compilerOptions.noUnusedParameters)) {
+            checkUnusedIdentifiers(getPotentiallyUnusedIdentifiers(node), (containingNode, kind, diag) => {
+                if (!containsParseError(containingNode) && unusedIsError(kind, !!(containingNode.flags & NodeFlags.Ambient))) {
+                    diagnostics.add(diag);
+                }
+            });
+        }
+
+        if (compilerOptions.importsNotUsedAsValues === ImportsNotUsedAsValues.Error &&
+            !node.isDeclarationFile &&
+            isExternalModule(node)
+        ) {
+            checkImportsForTypeOnlyConversion(node);
+        }
+
+        //...
     }
 }
 ```
-#### 类型推断
+具体逻辑就不深究了（看不懂），关键方法是`checkGrammarSourceFile`,`checkSourceElement`，分别负责声明和节点的语法检查.
 
+## 总结
+typescript编译过程
 
-
-### 代码生成
-emitter.ts
