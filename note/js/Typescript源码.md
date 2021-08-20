@@ -34,9 +34,9 @@ typescript源码1.5g，就挑一些核心部分了解一下，主要是src/compi
 
 ```
 ├── bin         最终给用户用的 tsc 和 tsserver 命令
-├── doc         语言规范文档
-├── lib         系统标准库（定义了es标准的方法和编译提示的国际化文件）
-├── loc         （一些lcl文件，没搞懂是干什么的）
+├── doc         文档
+├── lib         系统标准库（定义了es标准的方法、代码提示的国际化文件）
+├── loc         （一些lcl文件，vscode的提示，有点类似html文件）
 ├── scripts     开发项目时的一些工具脚本
 ├── src         源码
 │   ├── compiler        编译器代码（核心代码）
@@ -51,7 +51,6 @@ compiler目录结构
   ├── factory/              封装了一些工厂方法
   ├── build.ts              入口
   ├── program.ts            编译过程集合
-  ├── core.ts               工具函数
   ├── sys.ts                文件操作
   ├── types.ts              类型定义
   ├── scanner.ts            词法分析
@@ -59,16 +58,12 @@ compiler目录结构
   ├── utilities.ts          内部工具类
   ├── utilitiesPublic.ts    内部工具类
   ├── binder.ts             语法绑定
-  ├── checker.ts            类型检查
+  ├── checker.ts            代码检查
   ├── transformer.ts        代码转换
-  ├── transformers/         代码转换
+  ├── transformers/         
   ├── emitter.ts            生成文件
   ├── tsbuild.ts            存放ts构建过程的状态类型
-  ├── tsbuildPublic.ts      ts构建的方法（包括构建、监听，错误处理）
-  ├── visitorPublic.ts  
   ├── watch.ts              监听日志相关
-  ├── watchPublic.ts        监听日志相关
-  ├── watchUtilities.ts     监听日志相关
   ├── visitorPublic.ts      访问ts内部对象的方法
   └── ...
   
@@ -93,7 +88,7 @@ var a = b >= 1
 
 #### 组词
 组词的代码主要在scanner.ts中，顾名思义，在扫描字符串过程中组成单词。
-组词过程主要设计一下代码
+组词过程主要涉及一下代码
 ##### 1、CharacterCodes - 字符集
 首先得知道字符是什么字符
 ```typescript
