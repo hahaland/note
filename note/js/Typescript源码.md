@@ -118,7 +118,7 @@ export const enum CharacterCodes {
 /**
  *  src/compiler/scanner.ts
 */
-function isDigit(ch: number): boolean {  // 参数 ch 表示一个编码值
+function isDigit(ch: number): boolean {
     return ch >= CharacterCodes._0 && ch <= CharacterCodes._9;
 }
 ```
