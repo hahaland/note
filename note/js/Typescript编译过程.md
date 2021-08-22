@@ -86,13 +86,15 @@ var a = b >= 1
 - 类似的步骤继续获取`b`、`=`、`1`
 - 遇到换行，读取下个单词，由于是`var`，前面的语句结束，创建新的语句并添加`var`
 
+![alt text](/static/img/word_tree.jpg "tree")
+
 上面读取字符生成单词过程称之为组词，而创建语句的过程为组句
 
 #### 组词
 组词的代码主要在scanner.ts中，顾名思义，在扫描字符串过程中组成单词。
-组词过程主要涉及一下代码
+组词过程主要涉及以下代码
 ##### 1、CharacterCodes - 字符集
-首先得知道字符是什么字符
+首先得辨识字符
 ```typescript
 /**
  *  src/compiler/types.ts
@@ -148,8 +150,9 @@ export function isWhiteSpaceSingleLine(ch: number): boolean {
 ```
 
 #### 3、SyntaxKind - 单词类型
-接着就是定义多个字符组合类型，即单词类型，比如数字、变量、空格、操作符等等
+接着就是定义字符组合成词之后的类型，比如数字、变量、空格、操作符等等
 ```typescript
+// 语法类型，除了存放单词类型外还存放了节点类型
 export const enum SyntaxKind {
         Unknown,
         EndOfFileToken,
@@ -165,17 +168,17 @@ export const enum SyntaxKind {
 ```
 
 #### 4、 scan方法
-`scan`方法，是扫描单词的核心方法，以上述代码为基础，读取字符生成单词并返回单词类型，单词类型在ts中也称为token标记
+在执行词法分析时，会调用`createScanner`方法，返回`Scanner`对象，其中的`scan`方法作用就是扫描字符串并分词
+
 ```typescript
 /**
  *  src/compiler/scanner.ts
 */
 export interface Scanner {
-    
     private pos     // 开始位置
     private end     // 结束位置
-    private token   // 单词类型
-    private tokenValue // 单词值
+    private token   // 标记，存放当前的单词类型
+    private tokenValue // 当前单词的值
     scan(): SyntaxKind; // 扫描下一个标记
     setText(text: string, start?: number, length?: number): void; // 设置当前扫描的字符串
     getToken(): SyntaxKind; // 获取当前标记的类型
@@ -265,28 +268,26 @@ function scan(): SyntaxKind{
 }
 ```
 
-总结： `scan`方法读取字符，通过`CharacterCodes`判断需要走哪条对应单词类型的路径，比如`isDigit`，则调用`scanNumber`方法读取完整数字，最后设置tokenValue并返回单词类型`SyntaxKind`
+总结： `scan`方法会循环读取字符，通过`CharacterCodes`判断需要走哪条对应单词类型的路径，比如数字 1-9 调用`scanNumber`方法读取完整数字，最后更新当前位置和单词缓存并返回单词类型`SyntaxKind`
 
 ### 语法分析
 
 #### 什么是语法树
-获得一个个单词后，我们需要进行语法分析，才能组合成一个句子，比如`php是世界上最好的语言`，可以分解为：
+获得一个个单词后，我们还需要组合成一个句子，比如`php是世界上最好的语言`，可以分解为：
 ```
 语句
 ├── php         名称
 ├── 是          代指
 └── 语言        定义
-    ├──世界上   补充定义
-    └── 最好    补充定义
+    ├──世界上   修饰
+    └── 最好    修饰
 ```
-而一篇文章的结构又由很多语句组成,而且某个概念可能引用了其他文章的内容
+而一篇文章的结构又由很多语句组成
 ```
 文章
 ├── 语句         
 ├── 语句         
-├── 语句
-|      └── a
-└── 语句（注明a来源的语句）
+└── 语句
 ```
 typescript编译时，会把代码分解成类似上面的结构，称之为语法树：
 
@@ -311,20 +312,19 @@ sourceFile // 源文件
 - 类型节点 TypeNode
 - 表达式节点 Expression
 - 语句节点 Statement
-- 其他节点
+- 其他节点（开始/结束/switch/case）
 
 node的基本结构：
 ```typescript
 export interface Node extends ReadonlyTextRange {
-    readonly kind: SyntaxKind;                            // 节点类型
-    readonly decorators?: NodeArray<Decorator>;           // 装饰器
-    /* @internal */ id?: NodeId;                          
-    readonly parent: Node;                                // 父节点
-    /* @internal */ locals?: SymbolTable;                 // 符号表
-    /* @internal */ flowNode?: FlowNode;                  // 流程节点
+    readonly kind: SyntaxKind;            // 节点类型
+    readonly parent: Node;                // 父节点
+    id?: NodeId;                          
+    locals?: SymbolTable;                 // 符号表
+    flowNode?: FlowNode;                  // 流程节点
 }
 ```
-而得出这个语法树由`compiler/parser.ts`文件负责
+而这个语法树则由`compiler/parser.ts`文件负责
 
 #### 语法树的生成过程
 
@@ -375,16 +375,16 @@ export function parseSourceFile(fileName: string, sourceText: string, languageVe
 
     return result;
 }
+```
 
-// 初始化一些构造函数、文件相关的信息（格式、es版本）、解析过程中的缓存变量、初始化scanner
+`initializeState`会初始化一些构造函数、文件相关的信息（格式、es版本）、解析过程中的缓存变量、初始化scanner
+```typescript
 function initializeState(_fileName: string, _sourceText: string, _languageVersion: ScriptTarget, _syntaxCursor: IncrementalParser.SyntaxCursor | undefined, _scriptKind: ScriptKind) {
-    // 初始化构造函数
+    // 初始化一些构造函数
     NodeConstructor = objectAllocator.getNodeConstructor();
-    TokenConstructor = objectAllocator.getTokenConstructor();
-    IdentifierConstructor = objectAllocator.getIdentifierConstructor();
-    PrivateIdentifierConstructor = objectAllocator.getPrivateIdentifierConstructor();
-    SourceFileConstructor = objectAllocator.getSourceFileConstructor();
+    //...
 
+    // 初始化文件相关的信息
     fileName = normalizePath(_fileName);
     sourceText = _sourceText;
     languageVersion = _languageVersion; // es版本
@@ -397,16 +397,7 @@ function initializeState(_fileName: string, _sourceText: string, _languageVersio
     /* 略 */
     //判断文件类型
     switch (scriptKind) {
-        case ScriptKind.JS:
-        case ScriptKind.JSX:
-            contextFlags = NodeFlags.JavaScriptFile;
-            break;
-        case ScriptKind.JSON:
-            contextFlags = NodeFlags.JavaScriptFile | NodeFlags.JsonFile;
-            break;
-        default:
-            contextFlags = NodeFlags.None;
-            break;
+        //..
     }
     parseErrorBeforeNextFinishedNode = false;
 
@@ -416,12 +407,15 @@ function initializeState(_fileName: string, _sourceText: string, _languageVersio
     scanner.setScriptTarget(languageVersion);
 }
 
-// 开始解析
+```
+
+开始解析
+```typescript
 function parseSourceFileWorker(languageVersion: ScriptTarget, setParentNodes: boolean, scriptKind: ScriptKind): SourceFile {
 
     // 获取单词 nextToken中会调用scan方法
     nextToken();
-    // parseList使用传入的方法解析列表，调用parseStatement解析语句，返回nodeList
+    // parseList遍历列表，调用parseStatement解析语句，返回nodeList
     const statements = parseList(ParsingContext.SourceElements, parseStatement);
 
     // 内部方法，调用了nodeFactory中的createSourceFile，会创建一个根结点挂载statements和其他信息
@@ -430,6 +424,9 @@ function parseSourceFileWorker(languageVersion: ScriptTarget, setParentNodes: bo
     return sourceFile;
 }
 
+```
+`parseList`组句
+```typescript
 function parseList<T extends Node>(kind: ParsingContext, parseElement: () => T): NodeArray<T> {
     const saveParsingContext = parsingContext;
     parsingContext |= 1 << kind;
@@ -446,7 +443,7 @@ function parseList<T extends Node>(kind: ParsingContext, parseElement: () => T):
             continue;
         }
 
-        // 否则abortParsingListOrMoveToNextToken会抛出错误，然后继续解析
+        // 否则abortParsingListOrMoveToNextToken会抛出错误
         if (abortParsingListOrMoveToNextToken(kind)) {
             break;
         }
@@ -478,33 +475,54 @@ function parseStatement(): Statement {
 
 // 解析var语句
 function parseVariableStatement(pos: number, hasJSDoc: boolean, decorators: NodeArray<Decorator> | undefined, modifiers: NodeArray<Modifier> | undefined): VariableStatement {
-    // parseVariableDeclarationList方法会解析剩下的单词
+    // 解析声明列表
     const declarationList = parseVariableDeclarationList(/*inForStatementInitializer*/ false);
     parseSemicolon();
-    // 创建定义变量语句节点
+    // 创建var语句节点
     const node = factory.createVariableStatement(modifiers, declarationList);
     node.decorators = decorators;
     // withJSDoc 添加注释 finishNode设置node剩下的一些属性
     return withJSDoc(finishNode(node, pos), hasJSDoc);
 }
 ```
-除此之外，一些单词类型的检测需要根据上下文判断，比如`await`，需要在`async`中使用，那前面遍历时遇到`async`就会设置允许`await`的`flag`，就会用到`doInAwaitContext`、`doInsideOfContext`方法来改变对应的`flag`;
-又或者一些单词类型，需要根据后续的单词推断，比如 `x => {...}`，在未读取 => 之前，x可以是变量，但此时x是参数，这就需要使用`lookAhead`提前获取之后的单词，具体的实现就不细说了
+
+#### 上下文判断
+除此之外，一些单词类型的检测需要前后单词判断，比如
+- `await`，需要在`async`中使用，那前面遍历时遇到`async`就会设置允许`await`的`flag`（通过`doInAwaitContext`、`doInsideOfContext`方法来改变对应的`flag`）;
+- `x => {...}`，在未读取 => 之前，x可以是变量，但此时x是参数，这就需要使用`lookAhead`提前获取箭头才能正确解析
 
 ### 语法绑定
-前面的parser.ts完成了代码到语法树的分解，但语法树节点之间并没有关联起来，比如：
+前面的parser.ts完成了代码到语法树的转换，但语法树节点之间并没有关联起来，比如：
 ```typescript
-var a = 1
-a+1
-```
-两行代码都有`a`变量，只有让两个语句的a相互关联，才能形成完整的网络，才能继续后面的代码检查，这就需要`binder.ts`出场了，怎么关联的呢？
 
-首先，与前面的过程类似，`createBinder`初始化`binder`，传入之前`parser`后得到的语法树根节点`sourceFile`，执行`bind`方法，
+function fn(){
+    var a = 1
+    return a
+}
+function fn1(){
+    a = 1
+    return a
+}
+```
+`fn`中的`a`是同个作用域下的节点，`fn1`里的不是，这些关系在语法数树上也还没体现
+
+这时候就需要`binder.ts`建立节点之间的联系了
+
+
+![alt text](/static/img/statement_tree.jpg "tree")
+
+binder会在声明变量或者引入外部文件的变量时创建符号，变量的Symbol属性存放着对应的引用，所以可以看到`fn1`的语法书没有对应的符号表
 ```javascript
     createBinder ->
         bindSourceFile->
             bind
 ```
+
+
+
+与之前的`parser`过程类似，`createBinder`初始化`binder`，传入之前`parser`得到的语法树根节点`sourceFile`，执行`bind`方法。
+
+bind方法
 ``` typescript
 function bind(node: Node | undefined): void {
     if (!node) {
@@ -517,6 +535,7 @@ function bind(node: Node | undefined): void {
     // 根据节点选择对应的绑定方法
     bindWorker(node);
 
+    // 绑定作用域和子节点
     if (node.kind > SyntaxKind.LastToken) {
         const saveParent = parent;
         parent = node;
@@ -545,7 +564,7 @@ function bind(node: Node | undefined): void {
 // 根据节点类型选择对应的方法
 function bindWorker(node: Node) {
     switch (node.kind) {
-        /* Strict mode checks */
+        // 如果是变量类型
         case SyntaxKind.Identifier:
             // 如果在命名空间定义。
             if ((node as Identifier).isInJSDocNamespace) {
@@ -558,15 +577,11 @@ function bindWorker(node: Node) {
                 bindBlockScopedDeclaration(parentNode as Declaration, SymbolFlags.TypeAlias, SymbolFlags.TypeAliasExcludes);
                 break;
             }
-        case SyntaxKind.ThisKeyword:
-            // flow 用来关联代码流程
-            if (currentFlow && (isExpression(node) || parent.kind === SyntaxKind.ShorthandPropertyAssignment)) {
-                node.flowNode = currentFlow;
-            }
-            return checkContextualIdentifier(node as Identifier);
+        // ...
     }
 }
 
+// 根据块级作用域类型绑定节点
 function bindBlockScopedDeclaration(node: Declaration, symbolFlags: SymbolFlags, symbolExcludes: SymbolFlags) {
     switch (blockScopeContainer.kind) {
         case SyntaxKind.ModuleDeclaration:
@@ -579,21 +594,20 @@ function bindBlockScopedDeclaration(node: Declaration, symbolFlags: SymbolFlags,
                 break;
             }
         default:
-            // 没有创建块级作用域
+            // 没有locals属性(没有创建块级作用域)
             if (!blockScopeContainer.locals) {
-                // 创建符号表
+                // 创建符号表 存放在locals
                 blockScopeContainer.locals = createSymbolTable();
-                // addToContainerChain会将当前作用域与上个作用域关联lastContainer，即作用域链的实现
+                // addToContainerChain会将当前作用域与上个作用域（lastContainer）关联，即作用域链的实现
                 addToContainerChain(blockScopeContainer);
             }
-            // 
+            // 将当前节点添加到符号表
             declareSymbol(blockScopeContainer.locals, /*parent*/ undefined, node, symbolFlags, symbolExcludes);
     }
 }
 
-
+// 给对应的符号表
 function declareSymbol(symbolTable: SymbolTable, parent: Symbol, node: Declaration, includes: SymbolFlags, excludes: SymbolFlags): Symbol {
-    // SymbolTable 符号表，存放了当前作用域下的所有符号
     const isDefaultExport = hasModifier(node, ModifierFlags.Default);
 
     // The exported symbol for an export default function/class node is always named "default"
@@ -606,8 +620,7 @@ function declareSymbol(symbolTable: SymbolTable, parent: Symbol, node: Declarati
         symbol = createSymbol(SymbolFlags.None, "__missing");
     }
     else {
-        // 这里负责查找已有的symbol，还有判断是否有命名冲突，比如let a两次就会抛出错误
-        // ..
+        // 这里负责查找已有的symbol，还有判断是否有命名冲突
     }
     
     // 将symbol与node关联
@@ -617,7 +630,7 @@ function declareSymbol(symbolTable: SymbolTable, parent: Symbol, node: Declarati
 }
 
 ```
-上述代码建立起了词与词之间的联系，那么执行顺序呢，比如
+除了词与词之间的联系，语句的顺序也需要考虑，比如
 ```typescript
 function fn(){
     let res 
@@ -632,41 +645,63 @@ function fn(){
     return res // 4
 }
 ```
-`try catch`语句，`binder.ts`会通过检测关键字给节点添加`flowNode`，比如 3 部分的节点会存放两个流程，分别指向1和2
+`try catch`语句，`binder.ts`会通过检测关键字给节点添加`flowNode`，比如 3 部分的语句节点会存放两个流程，分别指向1和2的末尾。
 
-
-ps: 这部分没太理解，就简单提一下吧
+总结：`binder`通过`container`和`symoblTable`完成作用域的区分和节点之间的关联，通过`flowNode`完成流程关联
 ### 代码检查
-代码检查由`checker.ts`负责，checker的创建如下：
+
+经过binder上述步骤，文件已经被解析成一个个语法树，但还差一步
+```typescript
+/**
+*   const.ts
+*/
+export default const A = 1
+/**
+*   index.ts
+*/
+import A from 'const'
+function getA(){
+    return A
+}
+```
+`index.ts`引用了`const.ts`文件的变量，但A的符号表在其他语法树中，所以接下来还需要关联语法树
+
+这部分和代码检查都由`checker.ts`负责，checker的流程如下：
 ```
     createTypeChecker ->
-        initializeTypeChecker -> 返回checker
-            
+        initializeTypeChecker ->
+            bindSourceFile (绑定节点)，
+            mergeSymbolTable (合并符号表)
+                ->返回checker  
 ```
-初始化checker
+
 ```typescript
+// 初始化checker
 function initializeTypeChecker() {
-    // 先检查
+    // 调用binder绑定节点
     for (const file of host.getSourceFiles()) {
         bindSourceFile(file, compilerOptions);
     }
 
     amalgamatedDuplicates = new Map();
 
-    
-    let augmentations: LiteralExpression[][]; // 存放了各种依赖
+    // 存放了各种依赖
+    let augmentations: LiteralExpression[][]; 
+    // 合并符号表
     for (const file of host.getSourceFiles()) {
         if (!isExternalOrCommonJsModule(file)) {
-            // 合并符号表
+            // 将每个文件的合并到顶级的符号表globals中
             mergeSymbolTable(globals, file.locals);
         }
+
         // ...
-        // file.moduleAugmentations是在createProgram时收集的依赖
+
+        // file.moduleAugmentations是在createProgram时收集的依赖，program是整个解析的启动器
         if (file.moduleAugmentations.length) {
             (augmentations || (augmentations = [])).push(file.moduleAugmentations);
         }
 
-        // augmentations里的依赖还区分全局与模块，这里不深究
+        // augmentations里的依赖还区分全局与模块，略过
         // ...
     }
     // ...
@@ -675,6 +710,7 @@ function initializeTypeChecker() {
 不过无论是哪种模块，最终都是需要调用`mergeSymbolTable`合并符号表
 ```typescript
 function mergeSymbolTable(target: SymbolTable, source: SymbolTable, unidirectional = false) {
+    // 遍历符号表并合并符号
     source.forEach((sourceSymbol, id) => {
         const targetSymbol = target.get(id);
         target.set(id, targetSymbol ? mergeSymbol(targetSymbol, sourceSymbol, unidirectional) : sourceSymbol);
@@ -684,12 +720,14 @@ function mergeSymbolTable(target: SymbolTable, source: SymbolTable, unidirection
 至此，类型推断的基础完成了
 
 #### 类型推断
-调用过程如下
+首先看下入口：
 ```
-    getDiagnostics ->
-        getDiagnosticsWorker ->
-            checkSourceFile ->
-                checkSourceFileWorker ->
+    checkSourceFile ->
+        checkSourceFileWorker ->
+            checkGrammarSourceFile(检查顶级声明)，
+            checkSourceElement
+
+
 ```
 其实套路基本和前面的一样，直接看worker
 ```typescript
@@ -700,45 +738,323 @@ function checkSourceFileWorker(node: SourceFile) {
             return;
         }
 
-        // Grammar checking
+        // 检查顶级声明
         checkGrammarSourceFile(node);
 
-        clear(potentialThisCollisions);
-        clear(potentialNewTargetCollisions);
-        clear(potentialWeakMapSetCollisions);
-        clear(potentialReflectCollisions);
+        // clear(potentialThisCollisions);
+        // clear(potentialNewTargetCollisions);
+        // clear(potentialWeakMapSetCollisions);
+        // clear(potentialReflectCollisions);
 
-        // 检查节点
+        // 检查所有节点
         forEach(node.statements, checkSourceElement);
+        // 检查是否正常结束
         checkSourceElement(node.endOfFileToken);
-
-        checkDeferredNodes(node);
-
-        if (isExternalOrCommonJsModule(node)) {
-            registerForUnusedIdentifiersCheck(node);
-        }
-
-        if (!node.isDeclarationFile && (compilerOptions.noUnusedLocals || compilerOptions.noUnusedParameters)) {
-            checkUnusedIdentifiers(getPotentiallyUnusedIdentifiers(node), (containingNode, kind, diag) => {
-                if (!containsParseError(containingNode) && unusedIsError(kind, !!(containingNode.flags & NodeFlags.Ambient))) {
-                    diagnostics.add(diag);
-                }
-            });
-        }
-
-        if (compilerOptions.importsNotUsedAsValues === ImportsNotUsedAsValues.Error &&
-            !node.isDeclarationFile &&
-            isExternalModule(node)
-        ) {
-            checkImportsForTypeOnlyConversion(node);
-        }
 
         //...
     }
 }
 ```
-具体逻辑就不深究了（看不懂），关键方法是`checkGrammarSourceFile`,`checkSourceElement`，分别负责声明和节点的语法检查.
+其中的关键方法是`checkGrammarSourceFile`,`checkSourceElement`，分别负责顶级声明和节点的语法检查，直接看`checkSourceElement`.
 
+```typescript
+function checkSourceElementWorker(node: Node): void {
+    // 根节点忽略
+    if (isInJSFile(node)) {
+        forEach((node as JSDocContainer).jsDoc, ({ tags }) => forEach(tags, checkSourceElement));
+    }
+
+    const kind = node.kind;
+    if (cancellationToken) {
+        // cancellationToken 终端类型检查，用于性能优化
+        switch (kind) {
+            case SyntaxKind.ModuleDeclaration:
+            case SyntaxKind.ClassDeclaration:
+            case SyntaxKind.InterfaceDeclaration:
+            case SyntaxKind.FunctionDeclaration:
+                cancellationToken.throwIfCancellationRequested();
+        }
+    }
+
+    // 是否是不可到达的流程节点（比如return语句之后的代码）
+    if (kind >= SyntaxKind.FirstStatement && kind <= SyntaxKind.LastStatement && node.flowNode && !isReachableFlowNode(node.flowNode)) {
+        errorOrSuggestion(compilerOptions.allowUnreachableCode === false, node, Diagnostics.Unreachable_code_detected);
+    }
+
+    switch (kind) {
+        // 表达式语句
+        case SyntaxKind.ExpressionStatement:
+            return checkExpressionStatement(node as ExpressionStatement);
+        // .. 
+    }
+}
+```
+赋值场景,比如:
+```typescript
+a = b
+```
+是常见的类型推断的方法，所以我们看下表达式语句的类型推断，大致流程如下：
+```
+checkExpressionStatement ->
+    checkExpressionWorker ->
+        checkExpression ->
+            checkExpressionWorker,
+            instantiateTypeWithSingleGenericCallSignature（获取表达式的计算类型）
+```
+
+`checkExpression`检查表达式
+```typescript
+function checkExpression(node: Expression | QualifiedName, checkMode?: CheckMode, forceTuple?: boolean): Type {
+    tracing?.push(tracing.Phase.Check, "checkExpression", { kind: node.kind, pos: node.pos, end: node.end });
+    const saveCurrentNode = currentNode;
+    currentNode = node;
+    instantiationCount = 0;
+    // 
+    const uninstantiatedType = checkExpressionWorker(node, checkMode, forceTuple);
+    // 推断整个表达式类型的
+    const type = instantiateTypeWithSingleGenericCallSignature(node, uninstantiatedType, checkMode);
+    if (isConstEnumObjectType(type)) {
+        checkConstEnumAccess(node, type);
+    }
+    currentNode = saveCurrentNode;
+    tracing?.pop();
+    return type;
+}
+```
+由于我们是赋值语句，所以不需要看表达式的返回类型, 直接看`checkExpressionWorker`
+```typescript
+function checkExpressionWorker(node: Expression | QualifiedName, checkMode: CheckMode | undefined, forceTuple?: boolean): Type {
+    switch(kind){
+        // 变量
+        case SyntaxKind.Identifier:
+            return checkIdentifier(node as Identifier, checkMode);
+        // 二元表达式, 即赋值语句的类型
+        case SyntaxKind.BinaryExpression:
+            return checkBinaryExpression(node as BinaryExpression, checkMode);
+        // ...
+    }
+}
+
+const trampoline = createBinaryExpressionTrampoline(onEnter, onLeft, onOperator, onRight, onExit, foldState);
+
+function checkBinaryExpression(node: BinaryExpression, checkMode: CheckMode | undefined) {
+    const result = trampoline(node, checkMode);
+    Debug.assertIsDefined(result);
+    return result;
+};
+```
+
+`createBinaryExpressionTrampoline`会创建一个状态机，因为二元表达式可以嵌套（a = a ... = a + 1），不过赋值不需要，就略过了
+``` typescript
+/**
+    * 创建一个状态机，它使用堆遍历 `BinaryExpression` 以减少大树上的调用堆栈深度。
+    * @param onEnter 输入`BinaryExpression` 时评估回调。返回新的用户定义状态以在行走时与节点关联。
+    * @param onLeft 回调在走`BinaryExpression` 的左侧时进行评估。返回一个 `BinaryExpression` 以继续行走，或返回一个 `void` 以前进到右侧。
+    * @param onRight 回调在“BinaryExpression”的右侧行走时评估。返回一个 `BinaryExpression` 以继续行走，或返回一个 `void` 以前进到节点的末尾。
+    * @param onExit 退出`BinaryExpression` 时评估回调。返回的结果将被折叠到父状态，或者如果在顶部框架，则从 walker 返回。
+    * @param foldState 回调在嵌套`onExit` 的结果应该被折叠到该节点的父节点的状态中时进行评估。
+    * @returns 一个函数，它使用上述回调遍历一个 `BinaryExpression` 节点，从最外层的 `BinaryExpression` 节点返回对 `onExit` 的调用结果。
+*/
+export function createBinaryExpressionTrampoline<TOuterState, TState, TResult>(
+    onEnter, onLeft, onOperator, onExit, foldState: ((userState: TState, result: TResult, side: "left" | "right") => TState) | undefined,
+) {
+    const machine = new BinaryExpressionStateMachine(onEnter, onLeft, onOperator, onRight, onExit, foldState);
+    return trampoline;
+
+    function trampoline(node: BinaryExpression, outerState?: TOuterState) {
+        const resultHolder: { value: TResult } = { value: undefined! };
+        // 从enter开始 BinaryExpressionState.enter会执行onEnter
+        const stateStack: BinaryExpressionState[] = [BinaryExpressionState.enter];
+        const nodeStack: BinaryExpression[] = [node];
+        const userStateStack: TState[] = [undefined!];
+        let stackIndex = 0;
+        while (stateStack[stackIndex] !== BinaryExpressionState.done) {
+            stackIndex = stateStack[stackIndex](machine, stackIndex, stateStack, nodeStack, userStateStack, resultHolder, outerState);
+        }
+        Debug.assertEqual(stackIndex, 0);
+        return resultHolder.value;
+    }
+}
+
+export function nextState<TOuterState, TState, TResult>(machine: BinaryExpressionStateMachine<TOuterState, TState, TResult>, currentState: BinaryExpressionState) {
+    switch (currentState) {
+        case enter:
+            // 从onLeft开始
+            if (machine.onLeft) return left;
+            // falls through
+        case left:
+            if (machine.onOperator) return operator;
+            // falls through
+        case operator:
+            if (machine.onRight) return right;
+            // falls through
+        case right: return exit;
+        case exit: return done;
+        case done: return done;
+        default: Debug.fail("Invalid state");
+    }
+}
+```
+由于b是变量，最终会调用`checkIdentifier`中的具体节点类型
+```typescript
+function checkIdentifier(node: Identifier, checkMode: CheckMode | undefined): Type {
+            const symbol = getResolvedSymbol(node);
+            if (symbol === unknownSymbol) {
+                return errorType;
+            }
+
+            //...
+
+            // We should only mark aliases as referenced if there isn't a local value declaration
+            // for the symbol. Also, don't mark any property access expression LHS - checkPropertyAccessExpression will handle that
+            if (!(node.parent && isPropertyAccessExpression(node.parent) && node.parent.expression === node)) {
+                markAliasReferenced(symbol, node);
+            }
+
+            const localOrExportSymbol = getExportSymbolOfValueSymbolIfExported(symbol);
+            const sourceSymbol = localOrExportSymbol.flags & SymbolFlags.Alias ? resolveAlias(localOrExportSymbol) : localOrExportSymbol;
+            if (sourceSymbol.declarations && getDeclarationNodeFlagsFromSymbol(sourceSymbol) & NodeFlags.Deprecated && isUncalledFunctionReference(node, sourceSymbol)) {
+                addDeprecatedSuggestion(node, sourceSymbol.declarations, node.escapedText as string);
+            }
+
+            let declaration = localOrExportSymbol.valueDeclaration;
+            if (declaration && localOrExportSymbol.flags & SymbolFlags.Class) {
+                // Due to the emit for class decorators, any reference to the class from inside of the class body
+                // must instead be rewritten to point to a temporary variable to avoid issues with the double-bind
+                // behavior of class names in ES6.
+                if (declaration.kind === SyntaxKind.ClassDeclaration
+                    && nodeIsDecorated(declaration as ClassDeclaration)) {
+                    let container = getContainingClass(node);
+                    while (container !== undefined) {
+                        if (container === declaration && container.name !== node) {
+                            getNodeLinks(declaration).flags |= NodeCheckFlags.ClassWithConstructorReference;
+                            getNodeLinks(node).flags |= NodeCheckFlags.ConstructorReferenceInClass;
+                            break;
+                        }
+
+                        container = getContainingClass(container);
+                    }
+                }
+                else if (declaration.kind === SyntaxKind.ClassExpression) {
+                    // When we emit a class expression with static members that contain a reference
+                    // to the constructor in the initializer, we will need to substitute that
+                    // binding with an alias as the class name is not in scope.
+                    let container = getThisContainer(node, /*includeArrowFunctions*/ false);
+                    while (container.kind !== SyntaxKind.SourceFile) {
+                        if (container.parent === declaration) {
+                            if (isPropertyDeclaration(container) && isStatic(container) || isClassStaticBlockDeclaration(container)) {
+                                getNodeLinks(declaration).flags |= NodeCheckFlags.ClassWithConstructorReference;
+                                getNodeLinks(node).flags |= NodeCheckFlags.ConstructorReferenceInClass;
+                            }
+                            break;
+                        }
+
+                        container = getThisContainer(container, /*includeArrowFunctions*/ false);
+                    }
+                }
+            }
+
+            checkNestedBlockScopedBinding(node, symbol);
+
+            let type = getTypeOfSymbol(localOrExportSymbol);
+            const assignmentKind = getAssignmentTargetKind(node);
+
+            if (assignmentKind) {
+                if (!(localOrExportSymbol.flags & SymbolFlags.Variable) &&
+                    !(isInJSFile(node) && localOrExportSymbol.flags & SymbolFlags.ValueModule)) {
+                    const assignmentError = localOrExportSymbol.flags & SymbolFlags.Enum ? Diagnostics.Cannot_assign_to_0_because_it_is_an_enum
+                        : localOrExportSymbol.flags & SymbolFlags.Class ? Diagnostics.Cannot_assign_to_0_because_it_is_a_class
+                        : localOrExportSymbol.flags & SymbolFlags.Module ? Diagnostics.Cannot_assign_to_0_because_it_is_a_namespace
+                        : localOrExportSymbol.flags & SymbolFlags.Function ? Diagnostics.Cannot_assign_to_0_because_it_is_a_function
+                        : localOrExportSymbol.flags & SymbolFlags.Alias ? Diagnostics.Cannot_assign_to_0_because_it_is_an_import
+                        : Diagnostics.Cannot_assign_to_0_because_it_is_not_a_variable;
+
+                    error(node, assignmentError, symbolToString(symbol));
+                    return errorType;
+                }
+                if (isReadonlySymbol(localOrExportSymbol)) {
+                    if (localOrExportSymbol.flags & SymbolFlags.Variable) {
+                        error(node, Diagnostics.Cannot_assign_to_0_because_it_is_a_constant, symbolToString(symbol));
+                    }
+                    else {
+                        error(node, Diagnostics.Cannot_assign_to_0_because_it_is_a_read_only_property, symbolToString(symbol));
+                    }
+                    return errorType;
+                }
+            }
+
+            const isAlias = localOrExportSymbol.flags & SymbolFlags.Alias;
+
+            // We only narrow variables and parameters occurring in a non-assignment position. For all other
+            // entities we simply return the declared type.
+            if (localOrExportSymbol.flags & SymbolFlags.Variable) {
+                if (assignmentKind === AssignmentKind.Definite) {
+                    return type;
+                }
+            }
+            else if (isAlias) {
+                declaration = getDeclarationOfAliasSymbol(symbol);
+            }
+            else {
+                return type;
+            }
+
+            if (!declaration) {
+                return type;
+            }
+
+            type = getNarrowableTypeForReference(type, node, checkMode);
+
+            // The declaration container is the innermost function that encloses the declaration of the variable
+            // or parameter. The flow container is the innermost function starting with which we analyze the control
+            // flow graph to determine the control flow based type.
+            const isParameter = getRootDeclaration(declaration).kind === SyntaxKind.Parameter;
+            const declarationContainer = getControlFlowContainer(declaration);
+            let flowContainer = getControlFlowContainer(node);
+            const isOuterVariable = flowContainer !== declarationContainer;
+            const isSpreadDestructuringAssignmentTarget = node.parent && node.parent.parent && isSpreadAssignment(node.parent) && isDestructuringAssignmentTarget(node.parent.parent);
+            const isModuleExports = symbol.flags & SymbolFlags.ModuleExports;
+            // When the control flow originates in a function expression or arrow function and we are referencing
+            // a const variable or parameter from an outer function, we extend the origin of the control flow
+            // analysis to include the immediately enclosing function.
+            while (flowContainer !== declarationContainer && (flowContainer.kind === SyntaxKind.FunctionExpression ||
+                flowContainer.kind === SyntaxKind.ArrowFunction || isObjectLiteralOrClassExpressionMethod(flowContainer)) &&
+                (isConstVariable(localOrExportSymbol) && type !== autoArrayType || isParameter && !isParameterAssigned(localOrExportSymbol))) {
+                flowContainer = getControlFlowContainer(flowContainer);
+            }
+            // We only look for uninitialized variables in strict null checking mode, and only when we can analyze
+            // the entire control flow graph from the variable's declaration (i.e. when the flow container and
+            // declaration container are the same).
+            const assumeInitialized = isParameter || isAlias || isOuterVariable || isSpreadDestructuringAssignmentTarget || isModuleExports || isBindingElement(declaration) ||
+                type !== autoType && type !== autoArrayType && (!strictNullChecks || (type.flags & (TypeFlags.AnyOrUnknown | TypeFlags.Void)) !== 0 ||
+                isInTypeQuery(node) || node.parent.kind === SyntaxKind.ExportSpecifier) ||
+                node.parent.kind === SyntaxKind.NonNullExpression ||
+                declaration.kind === SyntaxKind.VariableDeclaration && (declaration as VariableDeclaration).exclamationToken ||
+                declaration.flags & NodeFlags.Ambient;
+            const initialType = assumeInitialized ? (isParameter ? removeOptionalityFromDeclaredType(type, declaration as VariableLikeDeclaration) : type) :
+                type === autoType || type === autoArrayType ? undefinedType :
+                getOptionalType(type);
+            const flowType = getFlowTypeOfReference(node, type, initialType, flowContainer);
+            // A variable is considered uninitialized when it is possible to analyze the entire control flow graph
+            // from declaration to use, and when the variable's declared type doesn't include undefined but the
+            // control flow based type does include undefined.
+            if (!isEvolvingArrayOperationTarget(node) && (type === autoType || type === autoArrayType)) {
+                if (flowType === autoType || flowType === autoArrayType) {
+                    if (noImplicitAny) {
+                        error(getNameOfDeclaration(declaration), Diagnostics.Variable_0_implicitly_has_type_1_in_some_locations_where_its_type_cannot_be_determined, symbolToString(symbol), typeToString(flowType));
+                        error(node, Diagnostics.Variable_0_implicitly_has_an_1_type, symbolToString(symbol), typeToString(flowType));
+                    }
+                    return convertAutoToAny(flowType);
+                }
+            }
+            else if (!assumeInitialized && !(getFalsyFlags(type) & TypeFlags.Undefined) && getFalsyFlags(flowType) & TypeFlags.Undefined) {
+                error(node, Diagnostics.Variable_0_is_used_before_being_assigned, symbolToString(symbol));
+                // Return the declared type to reduce follow-on errors
+                return type;
+            }
+            return assignmentKind ? getBaseTypeOfLiteralType(flowType) : flowType;
+        }
+```
 ## 总结
 typescript编译过程
 
