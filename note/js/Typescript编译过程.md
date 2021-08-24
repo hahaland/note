@@ -896,34 +896,36 @@ function checkIdentifier(node: Identifier, checkMode: CheckMode | undefined): Ty
     // 获取符号
     const symbol = getResolvedSymbol(node);
     // 不知道的类型，报错
-    if (symbol === unknownSymbol) {
-        return errorType;
-    }
+    // if (symbol === unknownSymbol) {
+    //     return errorType;
+    // }
 
-    // 作为参数的语法判断
-    if (symbol === argumentsSymbol) {
-        //...
-    }
+    // // 作为参数的语法判断
+    // if (symbol === argumentsSymbol) {
+    //     //...
+    // }
 
-    // 将别名标记为引用
-    if (!(node.parent && isPropertyAccessExpression(node.parent) && node.parent.expression === node)) { // 排除属性表达式
-        markAliasReferenced(symbol, node);
-    }
+    // // 将别名标记为引用
+    // if (!(node.parent && isPropertyAccessExpression(node.parent) && node.parent.expression === node)) { // 排除属性表达式
+    //     markAliasReferenced(symbol, node);
+    // }
 
-    // 在合并后的符号表中找到符号
-    const localOrExportSymbol = getExportSymbolOfValueSymbolIfExported(symbol);
-    // 如果有别名（a as b）, 转换
-    const sourceSymbol = localOrExportSymbol.flags & SymbolFlags.Alias ? resolveAlias(localOrExportSymbol) : localOrExportSymbol;
-    // 声明未调用的提示
-    if (sourceSymbol.declarations && getDeclarationNodeFlagsFromSymbol(sourceSymbol) & NodeFlags.Deprecated && isUncalledFunctionReference(node, sourceSymbol)) {
-        addDeprecatedSuggestion(node, sourceSymbol.declarations, node.escapedText as string);
-    }
-
-    //其他情况的判断...
-    return assignmentKind ? getBaseTypeOfLiteralType(flowType) : flowType;
+    // // 在合并后的符号表中找到符号
+    // const localOrExportSymbol = getExportSymbolOfValueSymbolIfExported(symbol);
+    // // 如果有别名（a as b）, 转换
+    // const sourceSymbol = localOrExportSymbol.flags & SymbolFlags.Alias ? resolveAlias(localOrExportSymbol) : localOrExportSymbol;
+    // // 声明未调用的提示
+    // if (sourceSymbol.declarations && getDeclarationNodeFlagsFromSymbol(sourceSymbol) & NodeFlags.Deprecated && isUncalledFunctionReference(node, sourceSymbol)) {
+    //     addDeprecatedSuggestion(node, sourceSymbol.declarations, node.escapedText as string);
+    // }
+    // ...
+    let type = getTypeOfSymbol(localOrExportSymbol);
+    // ...
+    //根据不同情况返回type...
 }
 ```
-其中的关键是符号的获取`getResolvedSymbol`，这个方法最终会调用`resolveNameHelper`，会向外循环直到找到对应的符号，然后判断符号类型是否正确，例子里只有一层作用域，所以循环一遍就能找到符号b对应的类型
+上面的代码可以看到其中的关键是符号的获取`getResolvedSymbol`和`getTypeOfSymbol`，这个方法最终会调用`resolveNameHelper`，会向外循环直到找到对应的符号，然后`getTypeOfSymbol`获取符号的类型，
+
 ```typescript
 function resolveNameHelper(
     location: Node | undefined,
@@ -974,24 +976,36 @@ function resolveNameHelper(
     // ... 
     return result;
 }
-```
-这就是大致的语法检查过程
-#### 跨文件的符号表
-前面的过程还不能解决跨文件的问题
-```typescript
-/**
-*   const.ts
-*/
-export default const A = 1
-/**
-*   index.ts
-*/
-import A from 'const'
-function getA(){
-    return A
+
+// 获取符号对应的类型
+function getTypeOfSymbol(symbol: Symbol): Type {
+    const checkFlags = getCheckFlags(symbol);
+    // ...
+    // import b from 'test'中的b是Alias类型
+    if (symbol.flags & SymbolFlags.Alias) {
+        return getTypeOfAlias(symbol);
+    }
+    return errorType;
 }
 ```
-这个例子里`index.ts`引用了`const.ts`文件的变量，但A的符号表在其他语法树中，所以接下来还需要关联语法树，我们看下`build.ts`文件
+由于`b`是定义在`test.ts`文件，就需要跨语法树查找
+#### 跨语法树查找
+
+由于获取到的符号是import语句定义的别名，需要调用`getTypeOfAlias`在获取对应文件的符号表找到对应类型
+```
+    getTypeOfAlias ->
+        resolveAlias ->
+            getDeclarationOfAliasSymbol ->
+                getTargetOfAliasDeclaration ->
+                    getTargetOfImportSpecifier->
+                getTypeOfSymbol (这时候获取的就是对应文件里的symbol了) ->
+                    getTypeOfVariableOrParameterOrProperty
+```
+具体代码旧不贴了，在获取到类型后，二元表达式最终会调用 `checkBinaryLikeExpressionWorker`
+```typescript
+checkBinaryLikeExpressionWorker(node.left, node.operatorToken, node.right, leftType, rightType, node)
+```
+判断左右的类型，返回对应结果，这就是赋值语句大致的语法检测过程
 ## 总结
 typescript编译过程
 
