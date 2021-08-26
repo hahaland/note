@@ -1006,6 +1006,13 @@ function getTypeOfSymbol(symbol: Symbol): Type {
 checkBinaryLikeExpressionWorker(node.left, node.operatorToken, node.right, leftType, rightType, node)
 ```
 判断左右的类型，返回对应结果，这就是赋值语句大致的语法检测过程
+
 ## 总结
-typescript编译过程
+scanner：读取字符 -> 分词 
+
+parser： 组句 -> 语法树
+
+binder： 根据作用域创建符号表 -> 绑定符号和流程
+
+checker：语法检查、类型推断（往上遍历符号表，跨文件时通过getTypeOfAlias获取对应符号，拿到对应的类型）
 
