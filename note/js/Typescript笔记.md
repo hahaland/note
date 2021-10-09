@@ -14,7 +14,7 @@
   // 参数a数字类型，返回值数字类型，有默认值的都是可选，...restOfName收集剩余的参数(只能是最后一个参数)
 ```
 
-- 类型断言
+### 类型断言
   用途
   - 联合类型只能使用类型的共同属性，断言可以使用其他属性，不过要避免断言后调用方法或引用深层属性，以减少不必要的运行时错误。
   ```typescript
@@ -45,9 +45,9 @@
 - 声明文件：
   必须以.d.ts结尾，只定义类型，不定义具体实现
 
-## 进阶
 
-- 元组，合并不同类型的数组,越界时可以是其中一个类型
+
+### 元组，合并不同类型的数组,越界时可以是其中一个类型
 ```typescript
   let arr: [string, number] = ['1',1]
 ```
@@ -58,3 +58,57 @@
   Days.Sun === 0
   Days[0] === 'Sun'
 ```
+
+## 进阶
+### 运算符
+#### 非空断言!
+```typescript
+    function onClick(callback?: () => void) {
+        callback!();	// 断言callback非空，虽然callback参数是可选但ts不会报错
+    }
+```
+#### ?. ??
+和es规范的操作符一样
+#### 数字分隔符_
+用来分隔数字，编译后自动去除
+```typescript
+    const num = 1_23
+
+    // 编译后
+    var num = 123
+```
+### 类型
+#### `unkonw` 和 `any`
+在不确定类型时，我们经常会指定为`any`，但这样ts会忽略语法检查，比如
+```typescript
+const uncertain: any = 'Hello world!';
+uncertain.hello();
+```
+
+而使用``unknow`时，需要我们收缩类型才能使用对应的方法
+```typescript
+function func(value: unknown) {
+  value.toFixed(2);
+
+  // Type assertion:
+  (value as number).toFixed(2); // OK
+}
+```
+
+#### void
+
+#### never
+
+### typescript的数据结构操作
+- 模拟数组操作
+
+- 取数据结构（interface/tuple）的子类型
+```typescript
+    type key = {
+
+    }
+```
+
+[TypeScript 高级用法](https://juejin.cn/post/6926794697553739784)
+
+[深入理解 TypeScript 高级用法](https://zhuanlan.zhihu.com/p/136254808)
