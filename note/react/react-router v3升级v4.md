@@ -11,7 +11,7 @@
   - [Redirect](#redirect)
 - [Link](#link)
 
-## 根路由Router
+### 根路由Router
 v3版本中，<Router>组件的history和routes通过props的方式传入：
 ``` jsx
 <Router history={browserHistory} routes={routes} />
