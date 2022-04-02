@@ -606,7 +606,7 @@ function bindBlockScopedDeclaration(node: Declaration, symbolFlags: SymbolFlags,
     }
 }
 
-// 给对应的符号表
+// 给对应节点添加符号表中的
 function declareSymbol(symbolTable: SymbolTable, parent: Symbol, node: Declaration, includes: SymbolFlags, excludes: SymbolFlags): Symbol {
     const isDefaultExport = hasModifier(node, ModifierFlags.Default);
 
@@ -803,9 +803,12 @@ function checkExpression(node: Expression | QualifiedName, checkMode?: CheckMode
     const saveCurrentNode = currentNode;
     currentNode = node;
     instantiationCount = 0;
-    // 
+    // 初步推断表达式类型
     const uninstantiatedType = checkExpressionWorker(node, checkMode, forceTuple);
-    // 推断整个表达式类型的
+    /**
+     * 泛型推断 （待深入）
+     * 大概是内部会获取上下文的signature（函数声明）
+     **/
     const type = instantiateTypeWithSingleGenericCallSignature(node, uninstantiatedType, checkMode);
     if (isConstEnumObjectType(type)) {
         checkConstEnumAccess(node, type);
@@ -815,7 +818,7 @@ function checkExpression(node: Expression | QualifiedName, checkMode?: CheckMode
     return type;
 }
 ```
-由于我们是赋值语句，所以不需要看表达式的返回类型, 直接看`checkExpressionWorker`
+可以看到`checkExpressionWorker`会初步获取类型，泛型会通过`instantiateTypeWithSingleGenericCallSignature`推断具体类型，先看下普通类型的推断：
 ```typescript
 function checkExpressionWorker(node: Expression | QualifiedName, checkMode: CheckMode | undefined, forceTuple?: boolean): Type {
     switch(kind){
@@ -989,6 +992,7 @@ function getTypeOfSymbol(symbol: Symbol): Type {
 }
 ```
 由于`b`是定义在`test.ts`文件，就需要跨语法树查找
+
 #### 跨语法树查找
 
 由于获取到的符号是import语句定义的别名，需要调用`getTypeOfAlias`在获取对应文件的符号表找到对应类型
@@ -1001,18 +1005,30 @@ function getTypeOfSymbol(symbol: Symbol): Type {
                 getTypeOfSymbol (这时候获取的就是对应文件里的symbol了) ->
                     getTypeOfVariableOrParameterOrProperty
 ```
-具体代码旧不贴了，在获取到类型后，二元表达式最终会调用 `checkBinaryLikeExpressionWorker`
+具体代码就不贴了，在获取到类型后，二元表达式最终会调用 `checkBinaryLikeExpressionWorker`
 ```typescript
 checkBinaryLikeExpressionWorker(node.left, node.operatorToken, node.right, leftType, rightType, node)
 ```
 判断左右的类型，返回对应结果，这就是赋值语句大致的语法检测过程
 
 ## 总结
-scanner：读取字符 -> 分词 
 
-parser： 组句 -> 语法树
+词法分析scanner：读取字符 -> 根据字符类型分词(token)
 
-binder： 根据作用域创建符号表 -> 绑定符号和流程
+语法分析parser： 根据token类型构建节点node , 挂载在根节点，组成了语法树
 
-checker：语法检查、类型推断（往上遍历符号表，跨文件时通过getTypeOfAlias获取对应符号，拿到对应的类型）
+语义分析：
+- binder： 根据作用域创建符号表 -> 绑定符号和flow，为语法分析建立基础
+- checker：语法检查、类型推断（往上遍历符号表，跨文件时通过getTypeOfAlias获取对应符号，拿到对应的类型）
 
+大致调用过程：
+
+parser.createSourceFile创建语法树根节点，parser中会调用scanner解析字符并进行分词，再根据token类型创建语法树节点；
+
+
+语法树创建完成后，通过checker进行语法分析，checkerSourceFile会调用binder, `bindWorker`调用节点对应的绑定函数，`bindContainer`会给节点创建容器和符号表`symoblTable`，用来保存其中声明的变量节点；之后通过`bindChildren`递归子节点；
+
+一些有流程关联的语句比如switch-case，try-catch、array操作（`x.push(value)`）等，会创建`flowNode`来关联路径。
+
+
+完成后就能进行语法检查了，根据节点类型，checker会调用对应的check方法进行检查。

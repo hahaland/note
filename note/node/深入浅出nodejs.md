@@ -62,7 +62,7 @@ node中的模块分两类：node提供的模块，称为核心模块；用户编
 1. 标识符的分析：
 - 核心模块
 
-  优先级赐予缓存加载，同名的自定义模块不会加载成功，需要更换路径
+  优先级次于缓存加载，同名的自定义模块不会加载成功，需要更换路径
 - 路径形式的文件模块
 
   以..和/开始的标识符；
@@ -81,7 +81,31 @@ node中的模块分两类：node提供的模块，称为核心模块；用户编
   不输入.js等文件扩展名的话，会以.js、.json、.node的顺序补全，依次尝试，输入扩展名能提升解析速度
 - 目录分析和包
   查找过程有可能的不到文件，但却能的到一个目录，
-  
+
+
+### 2.2.3 模块编译
+编译过程中，node会对文件进行包装，比如：
+```javascript
+(function(exports,require,module,__filename,__dirname)) {
+  var math = require('math')
+  exports.fn = function () {}
+}
+```
+这样能实现作用域隔离。
+
+之后会通过`vm.runInThisContext(code)`(类似eval，但是具有明确上下文)
+#### 2.3.1 JavaScript核心模块的编译过程
+
+1、转存为c/c++代码
+
+node通过v8附带的`js2c.py`，将内置js代码（src/node.js和lib/*.js）通过`字符串数组`的形式保存在`node_natives.h`头文件中，好处是启动时代码已经加载到内存。
+
+2、编译JavaScript核心模块
+
+与文件模块的区别： 获取代码的方式、缓存执行结果的位置
+- 首先通过`process.binding(moduleName)`加载代码
+- 编译成功后缓存带`NativeModule._cache`(文件模块是在`Module._cache`)
+
 
 
 
