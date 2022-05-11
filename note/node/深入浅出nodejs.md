@@ -124,7 +124,7 @@ windows通过IOCP实现，其他环境则是*nix（自定义线程池）
 
 #### 3.3.3 请求对象
 
-异步函数从发出调用，到回调的执行过程如下（`fs.open`方法举例）会产生
+异步I/O函数从发出调用，到回调的执行过程如下（`fs.open`方法举例）会产生
 
 1、调用阶段
 
@@ -155,11 +155,9 @@ node的单线程：指的是js代码执行单线程，io通过多线程并行，
 
 ***上述过程可以看到定时器的时间并不精确，最近一次的事件循环占用时间过长会导致超时***
 
-#### 3.4.2 
+#### **事件循环具体流程**
 
-#### 3.4.3 process.nextTick 与 setImmediate
-
-上述所有异步的执行顺序，参考下图（***https://nodejs.org/zh-cn/docs/guides/event-loop-timers-and-nexttick/***）
+上述所有异步的执行顺序，参考下图（https://nodejs.org/zh-cn/docs/guides/event-loop-timers-and-nexttick/）
 ```
 // 每个框被称为事件循环机制的一个阶段
    ┌───────────────────────────┐
@@ -183,15 +181,15 @@ node的单线程：指的是js代码执行单线程，io通过多线程并行，
 ```
 - timers：定时器，setTimeout() 和 setInterval() 的调度回调函数
 - pending callbacks：挂起的回调，比如，TCP套接字尝试连接时收到ECONNREFUSED，某些*nix系统希望等待报告错误，会在这个阶段执行
-- idle, prepare： Node内部的闲置和预备阶段
-- poll：轮询，计算应该阻塞和轮询 I/O 的时间，处理该时间段内轮询队列里的事件（比如I/O回调），
+- idle, prepare： Node内部的闲置和预备阶段，会计算poll应该阻塞和轮询 I/O 的时间
+- poll：轮询：处理该时间段内轮询队列里的事件（比如I/O回调），
   - 如果队列未空，但未超过时间，且之前setImmediate添加了回调，则立即结束，到check阶段
 - chec: 执行setImmediate的回调
 - close回调：执行一些关闭的回调函数
 
 而上述每个阶段，可以理解为浏览器的宏任务队列，而nextTick和promise的回调则是微任务，宏任务执行完后执行微任务队列里的，但是和浏览器有不同的地方：
-- 每个阶段执行完后会检查微任务队列
 - 浏览器的微任务队列只有一个，按先进先出的顺序执行，而node会区分类型，比如nextTick queue、promise queue，nextTick优先级更高。
+- 浏览器的宏任务是按先进先出，而node的则是区分阶段，每个阶段都会执行完对应队列才到下个阶段.
 ``` javascript
 // 这段代码,timer中的宏队列有两个回调，会先执行第一个timeout，然后执行nextTick和promise队列里的回调，再执行下一个timeout
 function fn() {
@@ -205,6 +203,9 @@ function fn() {
     }).then(res => {
       console.log('Promise resolve')
     })
+    setImmediate(() => {
+      console.log('Immediate 2')
+    })
   }, 0)
 
   setTimeout(() => {
@@ -212,8 +213,117 @@ function fn() {
   }, 0)
 }
 ```
-可以看到setImmediate是在check阶段执行;而nextTick，则是在每个阶段结束时检查
+可以看到setImmediate是在check阶段执行；而nextTick，则是在每个阶段结束时检查
 
+还有个需要注意的地方
+```javascript
+setTimeout(() => {
+  console.log('timeout', 0)
+  setImmediate(() => {
+    console.log('Immediate 2')
+  })
+}, 0)
+
+setImmediate(() => {
+  console.log('Immediate 1')
+})
+
+setTimeout(() => {
+  console.log('timeout', 1)
+}, 0)
+
+```
+上面这段代码 按照直觉，第一个setTimeout会比setImmediate先执行，但实际上setImmediate和timeout都有可能先执行，这是因为setTimeout的时间不会为0，node会改成至少1ms（chrome浏览器中也是1ms，不过嵌套层级>=5层时是4ms，这是为了避免cpu spinning和耗电过高的问题），如果同步代码执行时间超过1ms，timer就会执行，否则就会等到下个tick的timer在执行。
+
+**总结**：
+- 关于setTimeout和setImmediate的执行顺序，要看timeout是在哪个阶段添加的
+  - 如果是在timer或者poll阶段添加，则属于下个tick的timer，setImmediate先执行；
+  - 如果在外层的同步代码，或者setImmediate执行，两者都进入了下个tick，则根据代码执行时间是否超过timer设置的时间判断
+- 关于process.nextTick和Promise，每个阶段队列的单个任务执行完后就会执行nextTick队列，执行完后再执行微任务队列，promise会放在微任务队列中（***注意：旧版的node表现不一致，nextTick和微任务在阶段对应的队列全部执行完后才会执行***）
+- 什么时候使用process.nextTick？需要在当前代码执行完后，进入下个阶段前执行，比如：
+  - 在开发 API 时很重要，可以在构造对象之后但在发生任何 I/O 之前分配事件处理程序
+  - 当一些异步api执行同步代码时，可以通过nextTick完全异步化
+
+
+## 4. 异步编程
+
+### 4.1 函数式编程
+
+### 4.4 异步并发控制
+大量异步I/O会导致操作系统的文件描述符被用光（比如循环里调用异步I/O），抛出错误：
+```
+ Error: EMFILE, too many open files
+```
+所以需要添加过载保护
+#### 4.4.1 bagpipe的解决方案
+
+- 通过队列控制并发量
+- 当正在执行的异步调用量小于限定值，从队列中取出执行
+- 达到限定值后停止取出队列中的异步函数
+- 每个异步调用结束后，从队列中取出新的异步函数
+
+（1）拒绝模式
+当队列达到限定值后，队列无法再添加新的调用（push方法添加判断，达到数量时报错）
+
+（2）超时控制
+执行时间超出限制时，返回超时错误（可以通过`Promise.race`，增加一个定时器设置时间来实现）
+```javascript
+Promise.race([
+  quene, // 异步队列
+  timeout // 定时器
+])
+```
+
+## 5. 内存控制
+### 5.1 v8的垃圾回收机制与内存限制
+
+### 5.1.2 v8的内存限制
+64位系统限制为1.4G，32位为0.7G，超出内存会导致进程退出，为什么会有这个限制，则需要回归v8的内存策略
+
+### 5.1.3 v8的对象分配
+v8通过堆来分配对象，执行以下代码，将得到输出的内存信息：
+```
+> process.memoryUsage()
+
+{
+  rss: 28749824, // (Resident Set Size)操作系统分配给进程的总的内存大小
+  heapTotal: 6615040, // 申请的堆内存
+  heapUsage: 5573760, // 已使用的量
+  external: 1104605, // v8的内置库使用的内存大小
+  arrayBuffers: 125136 // 分配给 ArrayBuffer 和 SharedArrayBuffer 的内存
+}
+```
+创建的对象会被分配到堆中，当空闲的空间不足以分配对象时会继续申请空间，直到超出限制
+
+因为v8最初为浏览器设计，当超出1.5G时，v8做一次小的垃圾回收会超出50ms，一次飞增量式的回收甚至超过1s，这段时间js会受到阻塞，因此才有了这个限制
+
+当然，node可以通过设置参数修改限制：
+```
+> node --max-old-space-size xxxx // 设置老生代空间
+> node  --max_semi_space_size xxxx // 设置新生代空间
+
+```
+### 5.1.4 v8的垃圾回收机制
+不同生命周期使用不同的回收策略，所以node对此进行了分代。
+
+**新生代**
+存活对象：一个对象处于活跃状态，当且仅当它被一个根对象或另一个活跃对象指向。根对象被定义为处于活跃状态，是浏览器或V8所引用的对象；可以在chrome devtool的内存分析工具中看到，Retainers即引用了当前对象的对象
+![alt text](/static/img/devtool-memory.png "memory")
+
+- scavenge算法
+    
+    是一种采用复制的方式实现的算法，具体过程：
+    - 首先将堆一分为二，其中只有一个空间在使用，使用中的称为From，另一个为To
+    - 分配对象时，会在From中创建
+    - 进行垃圾回收时，会将存活对象复制到To空间，然后角色互换，To变为新的From空间，旧From释放空间变为To
+    
+    可以看出，该算法用空间换取时间，存活时间短的对象少，适用于该场景
+
+**老生代**
+
+老生代中的对象来自新生代中的对象晋升，什么时候会晋升呢：
+- 存活对象经过一次回收后，下次仍未被回收
+- To空间已满
 
 
 
