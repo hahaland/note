@@ -321,7 +321,7 @@ v8通过堆来分配对象，执行以下代码，将得到输出的内存信息
     可以看出，该算法用空间换取时间，存活时间短的对象少，适用于该场景
 
     ***补充：*** 
-    ![alt text](https://v8.js.cn/_img/trash-talk/09.svg,"memory")
+    ![alt text](https://v8.js.cn/_img/trash-talk/09.svg "memory")
     
 **老生代**
 
