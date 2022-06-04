@@ -180,11 +180,13 @@ node的单线程：指的是js代码执行单线程，io通过多线程并行，
    └───────────────────────────┘
 ```
 - timers：定时器，setTimeout() 和 setInterval() 的调度回调函数
-- pending callbacks：挂起的回调，比如，TCP套接字尝试连接时收到ECONNREFUSED，某些*nix系统希望等待报告错误，会在这个阶段执行
-- idle, prepare： Node内部的闲置和预备阶段，会计算poll应该阻塞和轮询 I/O 的时间
-- poll：轮询：处理该时间段内轮询队列里的事件（比如I/O回调），
-  - 如果队列未空，但未超过时间，且之前setImmediate添加了回调，则立即结束，到check阶段
-- chec: 执行setImmediate的回调
+- pending callbacks：挂起的回调，主要是某些系统操作（如 TCP 错误类型），TCP套接字尝试连接时收到ECONNREFUSED，某些*nix系统希望等待报告具体错误，会在这个阶段执行
+- idle, prepare：仅系统内部使用，会
+- poll （轮询）：
+  1、计算poll应该阻塞和轮询 I/O 的时间
+  2、处理 轮询 队列里的事件回调（比如I/O回调），
+  - 如果队列为空，但未超过时间，且之前setImmediate添加了回调，则立即结束，到check阶段
+- check: 执行setImmediate的回调
 - close回调：执行一些关闭的回调函数
 
 而上述每个阶段，可以理解为浏览器的宏任务队列，而nextTick和promise的回调则是微任务，宏任务执行完后执行微任务队列里的，但是和浏览器有不同的地方：
@@ -266,14 +268,14 @@ setTimeout(() => {
 当队列达到限定值后，队列无法再添加新的调用（push方法添加判断，达到数量时报错）
 
 （2）超时控制
-执行时间超出限制时，返回超时错误（可以通过`Promise.race`，增加一个定时器设置时间来实现）
+等待时间超出限制时，返回超时错误（可以通过`Promise.race`，增加一个定时器设置时间来实现）
 ```javascript
 Promise.race([
   quene, // 异步队列
   timeout // 定时器
 ])
 ```
-
+不过这只能在任务不阻塞的情况下才能使用，如果队列里是一些计算量大的任务，需要采取子进程的方式避免阻塞
 ## 5. 内存控制
 ### 5.1 v8的垃圾回收机制与内存限制
 
@@ -395,7 +397,7 @@ v8采用分代堆布局。
 **总结**：
 - 内存空间分为新生代和老生代，来处理不同生命周期的对象
 - 新生代存放存活时间短的对象，老生代存放存活的更久的对象
-- 所有对象都采取三色标记法来判断是否是存活对象，三色标记法是为了标记任务的分片
+- 对象采取三色标记法来判断是否是存活对象，三色标记法是为了标记任务的分片，是实现gc标记并行并发的基础
 - 新生代的清理采用scavenge算法，平分空间，每个周期将存活对象从From复制到To，并交换角色
 - 老生代的清理采用标记-整理的方法，将存活对象移到内存的一端，将边界外的空间清空，来避免碎片化空间的产生
 - v8的主垃圾回收器会在堆接近极限时，并行和并发标记（不阻塞主进程），最后主进程暂停任务进行一次快速标记避免遗漏（阻塞主进程），然后开始并行和并发清理（不阻塞主进程）
@@ -404,6 +406,126 @@ https://learn.lianglianglee.com/%E4%B8%93%E6%A0%8F/%E9%87%8D%E5%AD%A6%E6%93%8D%E
 
 
 https://v8.js.cn/blog/trash-talk/
+
+
+## 5.2 高效使用内存
+
+- 减少使用全局变量
+- 主动释放变量
+- 定时器和监听事件及时清除
+- 减少使用闭包
+
+## 5.3 内存指标
+### 5.3.1 查看内存使用情况
+
+- process.memoryUsage() 查看进程的内存占用
+- os.totalmem() 和 os.freemem 查看操作系统的总内存和闲置内存
+
+## 5.4 内存泄露
+通常，造成内存泄漏原因有以下几个：
+- 缓存
+- 队列消费不及时
+- 作用域未释放
+## 5.4.1 慎将内存当缓存
+最好采用进程外的缓存，比如redis
+
+## 5.4.2 关注队列状态
+当消费速度小于生产速度时，就可能出现队列过长的情况，比如收集日志，如果采取写入数据库的方式，那消费速度很有可能将跟不上，这是需要采取文件写入提高速度；
+
+不过无论怎么考虑，都只能提高阈值，还是可能出现内存不够的情况，最终还是需要监控队列状态，提前预警；还有异步调用都应该有超时机制
+
+
+*补充：*
+
+一个关于闭包泄露的例子(https://blog.meteor.com/an-interesting-kind-of-javascript-memory-leak-8b47d2e7f156)
+  ```javascript
+    var theThing = null; 
+    var replaceThing = function () { 
+      var originalThing = theThing;
+      var used = function () { 
+        if (originalThing) 
+          console.log("hi"); 
+      }; 
+      theThing = {
+        longStr: new Array(1000000).join('*'), 
+        // 由于和used的词法环境相同，且used引用了originalThing，因此相当于someMethod也引用了originalThing
+        someMethod: function () {} 
+      }; 
+      // 如果在此处添加 `originalThing = null`，则没有泄漏。
+    }; 
+    setInterval(replaceThing, 1000);
+  ```
+  虽然`someMethod`没有引用上层的变量，但`used`引用了，而这两者都在同个词法环境，因此共享相同的作用域对象，而每次循环，`someMethod`都会保存旧作用域，里面包含了上次的theThing，从而导致内存泄露
+
+## 5.5 内存泄露排查
+node-heapdump 包截取内存快照，导入chrome查看 
+
+## 5.6 大内存应用
+
+createReadStream 和 createWriteStream
+
+```javascript
+  const reader = fs.createReadStream('reader.txt')
+  const writer = fs.createWriteStream('writer.txt')
+  reader.pipe(writer)
+```
+
+上述通过流的方式，不受v8内存限制
+
+# 6 Buffer
+
+## 为什么需要 Buffer
+
+需要处理大量二进制流的情况，比如处理网络协议、操作数据库、处理图片、接收上传文件等
+
+## Buffer对象
+
+- 和array相像，比如length属性，通过下标访问元素
+- 创建对象的方法
+  |  接口   | 用途  |
+  |  ----  | ----  |
+  | Buffer.from()  | 根据已有数据生成一个 Buffer 对象 |
+  | Buffer.alloc()  | 创建一个初始化后的 Buffer 对象 |
+  | Buffer.allocUnsafe()  | 创建一个未初始化的 Buffer 对象 |
+- 
+
+
+
+参考：https://elemefe.github.io/node-interview/#/sections/zh-cn/io?id=buffer
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

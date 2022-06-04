@@ -471,6 +471,19 @@ function createFn() {
 }
 ```
 
+**闭包场景**
+- 私有属性
+- 延长变量生命周期（比如创建函数工厂）
+  ```javascript
+    function generate(val){
+      return function (a){
+        return val*a
+      }
+    }
+    let f1 = generate(1)
+
+    console.log(f1(1),f1(2)) // 1 2
+  ```
 ### 私有变量
 
 在构造函数内创建变量和方法，并在this添加一个访问内部变量的方法，这种方法称为**特权方法**
