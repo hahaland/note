@@ -91,9 +91,11 @@ node中的模块分两类：node提供的模块，称为核心模块；用户编
   exports.fn = function () {}
 }
 ```
-这样能实现作用域隔离。
+
 
 之后会通过`vm.runInThisContext(code)`(类似eval，但是具有明确上下文)
+
+这样能实现作用域隔离。
 #### 2.3.1 JavaScript核心模块的编译过程
 
 1、转存为c/c++代码
