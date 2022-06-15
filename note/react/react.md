@@ -133,4 +133,16 @@ React 16.85的新增属性，在不编写class的情况下使用state等react特
 - 设置`componentDidCatch()`处理错误信息
 - React 16之后，发生错误的组件树会被整个移除
 
-## ref转发
+## react 17新特性
+https://zh-hans.reactjs.org/blog/2020/10/20/react-v17.html
+### jsx的使用
+使用jsx不需要导入 react，编译时会自动插入
+
+### 事件委托的变更
+
+事件不再挂载到顶层的document，而是react组件树的root节点
+
+#### 好处
+- 事件传递更接近dom】
+
+  旧有的机制是事件由顶层的合成事件管理，因此在react事件中阻止传递（e.stopPropagation）只能阻止react的事件，原生事件需要通过 `e.nativeEvent.stopImmediatePropagation`阻止

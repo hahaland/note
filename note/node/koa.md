@@ -117,8 +117,8 @@ async (ctx, next) => {
 - compose包装一个函数
 - 收到请求时，执行这个函数，返回dispatch(0)
 - 尝试执行第一个中间件，并用promise封装，
-- 中间件传入ctx和下一个中间件，通过bind绑定下标
-- 过程中tyr catch，出错时终止传递
+- 中间件传入ctx和下一个中间件，中间件函数通过bind绑定下标
+- 过程中tyr catch，出错时终止循环
 
 ```javascript
   
@@ -142,6 +142,7 @@ async (ctx, next) => {
     // 执行第一个中间件
     return dispatch(0)
     function dispatch (i) {
+      // 这里是为了防止中间件重复执行
       if (i <= index) return Promise.reject(new Error('next() called multiple times'))
       index = i
       let fn = middleware[i]
