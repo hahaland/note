@@ -133,6 +133,7 @@ React 16.85的新增属性，在不编写class的情况下使用state等react特
 - 设置`componentDidCatch()`处理错误信息
 - React 16之后，发生错误的组件树会被整个移除
 
+
 ## react 17新特性
 https://zh-hans.reactjs.org/blog/2020/10/20/react-v17.html
 ### jsx的使用
@@ -142,7 +143,174 @@ https://zh-hans.reactjs.org/blog/2020/10/20/react-v17.html
 
 事件不再挂载到顶层的document，而是react组件树的root节点
 
-#### 好处
-- 事件传递更接近dom】
+旧版本中react事件中，要阻止document的原生事件需要通过 `e.nativeEvent.stopImmediatePropagation`阻止，17之后使用`e.stopPropagation`就行了
 
-  旧有的机制是事件由顶层的合成事件管理，因此在react事件中阻止传递（e.stopPropagation）只能阻止react的事件，原生事件需要通过 `e.nativeEvent.stopImmediatePropagation`阻止
+### 移除事件池
+
+旧版的事件对象在事件结束后会被回收，因此异步里调用`e.xx.xx`会报错，新的不在回收，交由浏览器完成垃圾回收
+
+一些事件的修改：
+- onScroll 事件不再冒泡
+- onFocus 和 onBlur切换为原生的focusin、focusout 
+- 捕获使用的浏览器的捕获监听
+
+### 副作用清理时间
+旧版本中，组件卸载时，清理函数会同步执行，可能会阻塞渲染，但这些代码大都没有同步执行的必要性，现在useffect回调会在渲染后异步执行，如果想同步进行可以使用 `useLayoutEffect`，相当于componentDidUpdate或didMount
+
+https://github.com/yaofly2012/note/issues/149
+
+## react 18新特性
+
+### 1、并发渲染 （Concurrent React ）
+- 渲染可中断，以提升页面流畅度
+
+### 2、服务端渲染api更新 
+以完全支持服务器上的 Suspense 和流式 SSR
+- renderToNodeStream -> renderToPipeableStream
+- 新增 renderToReadableStream
+
+https://github.com/reactwg/react-18/discussions/37
+
+### 3、自动批处理
+
+旧：
+
+setState在react的事件处理程序中才会批量处理，如果在异步中调用（比如setTimeout、promise、本机事件处理程序或任何其他事件内部）则不会批量执行
+
+新：
+
+所有更新都会批量执行，目的是为了减少渲染次数，可以使用`flushSync`来退出自动批处理
+```javascript
+function handleClick() {
+  flushSync(() => {
+    setCounter(c => c + 1);
+  });
+  // React has updated the DOM by now
+  flushSync(() => {
+    setFlag(f => !f);
+  });
+  // React has updated the DOM by now
+}
+```
+
+### 4、新api
+- useTransition
+  为了避免破坏性改动，批量处理在18中需要两个启用条件：
+  
+  1、先使用createRoot，前提条件
+  
+  2、使用useTransition
+  
+  startTransition里的setstate会被标记为不紧急的更新，统一批处理，遇到大量渲染的性能问题时，可以通过这个方法优化性能
+  ```javascript
+    function App() {
+      const [isPending, startTransition] = useTransition();
+      const [count, setCount] = useState(0);
+      
+      function handleClick() {
+        // 里面的更像完成后，isPending变为true，才会渲染Spinner
+        startTransition(() => {
+          setCount(c => c + 1);
+        })
+      }
+
+      return (
+        <div>
+          {isPending && <Spinner />}
+          <button onClick={handleClick}>{count}</button>
+        </div>
+      );
+    }
+  ```
+
+  https://juejin.cn/post/7020621789172613157
+
+- useId 用于服务端与客户端生成的id，且能保持一致
+
+  先了解下ssr的大致过程：
+
+  在服务端，我们会将 React 组件渲染成为一个字符串，这个过程叫做脱水「`dehydrate`」。字符串以 html 的形式传送给客户端，作为首屏直出的内容。到了客户端之后，还有一些服务端未能完成的工作，比如绑定事件，加载js，这个过程叫做「`hydrate`」,
+
+  可以看出，服务端只渲染结构，客户端还需要重新执行一遍，那随机id在服务端生成后，在客户端再次执行就会变化，为了保证两端一致，可以通过全局自增id来保持一致
+  
+  **但**！`React Fizz`(React新的服务端流式渲染器)导致代码执行顺序不在确定，自增id无法保持一致，**react根据组件层级生成id来保证稳定**
+  关于服务端渲染：
+
+  https://blog.csdn.net/weixin_39945523/article/details/110137731
+
+  关于useId实现：
+
+  https://juejin.cn/post/7034691251165200398
+
+- useDeferredValue
+
+  与useTransition类似，都是用于延迟到批量更新，只是useDeferredValue 用于值的包装
+
+  ```javascript
+    function App() {
+      const [isPending, startTransition] = useTransition();
+      const [count, setCount] = useState(0);
+      
+      function handleClick() {
+        setCount(c => c + 1);
+      }
+
+      const deferCount = useDeferredValue(count)
+      
+      return (
+        <div>
+          {isPending && <Spinner />}
+          <button onClick={handleClick}>{deferCount}</button>
+        </div>
+      );
+    }
+  ```
+## react 渲染过程
+
+### 16以前（旧）
+
+diff算法，比较新旧虚拟dom，采用递归深度遍历比较节点，完成后对dom进行更新
+### fiber(新)
+由于diff的不可中断，会导致页面可能被阻塞，因此react采取新的`fiber`架构，将diff和更新分为两个阶段：
+- render
+
+  原有的diff算法从深度递归改造成异步可中断的遍历，一些概念如下：
+
+  1、fiber节点的数据结构
+    - 节点信息（tag操作类型、key、elementType元素类型、stateNode真实dom节点...）
+    - 指针（父节点return、子节点child、兄弟节点sibling、双重缓存对应的节点alternate）
+    - 计算state相关的属性（props、dependencies...）
+    - effect相关
+    - 优先级相关，schedule执行优先级高的任务
+
+  2、diff算法
+    - 只比较同级
+    - 类型不同时删除节点重新创建
+    - key和type相同时可以复用，老节点会根据key或index存放在map中，新节点也根据key去获取，没有再创建新节点
+- commit阶段
+
+  主要是收集effectList进行处理，分三个阶段：
+  - 收集effectList
+  - before mutation： 类组件调用getSnapshotBeforeUpdate（在componentDidUpdate之前），函数类调度usEeffect，在dom变更前获取组件实例信息，
+  - mutation 执行对应dom操作，并执行useLayoutEffect的销毁函数
+  - layout 完成渲染，执行渲染完成的回调，比如componentDidMount、componentDidUpdate、useLayoutEffect
+  遍历fiber树，执行对应tag的操作
+
+### concurrent mode(并发)
+在fiber的基础上
+上述的render阶段没有切片调度的说明，调度由`scheduler`完成，，超过则创建为宏任务
+- scheduler 调度
+  - 每一次fiber的diff后会判断执行事件是否超过5ms
+  - 超过 则转为宏任务，由浏览器事件队列自行分配
+  - 有用户操作优先执行
+- lane（车道） 即优先级：
+
+  同步(flushSync) > 连续事件 > 默认优先级(普通的state更新) > 过渡 > 重试 > 离屏幕
+- 每个任务都有过期时间，过期后会放到taskQuene中优先执行，以保证不会被一直抢占
+
+**总结**
+Fiber -- 增加节点信息，为任务拆分提供基础。
+Scheduler -- 在fiber的diff过程中根据优先级安排任务或者diff。
+Lane -- 为Scheduler提供合理的调度优先级（通过小顶堆存放任务）
+
+上层实现了batchedUpdates和Suspense
