@@ -124,41 +124,41 @@ async (ctx, next) => {
   
 
   function compose (middleware) {
-  if (!Array.isArray(middleware)) throw new TypeError('Middleware stack must be an array!')
-  for (const fn of middleware) {
-    if (typeof fn !== 'function') throw new TypeError('Middleware must be composed of functions!')
-  }
+    if (!Array.isArray(middleware)) throw new TypeError('Middleware stack must be an array!')
+    for (const fn of middleware) {
+      if (typeof fn !== 'function') throw new TypeError('Middleware must be composed of functions!')
+    }
 
-  /**
-   * @param {Object} context
-   * @return {Promise}
-   * @api public
-   */
+    /**
+     * @param {Object} context
+     * @return {Promise}
+     * @api public
+     */
 
-  return function (context, next) {
-    // last called middleware #
-    // 初始值
-    let index = -1
-    // 执行第一个中间件
-    return dispatch(0)
-    function dispatch (i) {
-      // 这里是为了防止中间件重复执行
-      if (i <= index) return Promise.reject(new Error('next() called multiple times'))
-      index = i
-      let fn = middleware[i]
-      // 边界值处理
-      if (i === middleware.length) fn = next
-      if (!fn) return Promise.resolve()
+    return function (context, next) {
+      // last called middleware #
+      // 初始值
+      let index = -1
+      // 执行第一个中间件
+      return dispatch(0)
+      function dispatch (i) {
+        // 这里是为了防止中间件重复执行
+        if (i <= index) return Promise.reject(new Error('next() called multiple times'))
+        index = i
+        let fn = middleware[i]
+        // 边界值处理
+        if (i === middleware.length) fn = next
+        if (!fn) return Promise.resolve()
 
-      try {
-        // 传入了ctx，dispatch下标绑定为i+1
-        return Promise.resolve(fn(context, dispatch.bind(null, i + 1)));
-      } catch (err) {
-        // 捕获到错误终止传递
-        return Promise.reject(err)
+        try {
+          // 传入了ctx，dispatch下标绑定为i+1
+          return Promise.resolve(fn(context, dispatch.bind(null, i + 1)));
+        } catch (err) {
+          // 捕获到错误终止传递
+          return Promise.reject(err)
+        }
       }
     }
-  }
 }
 ```
 
@@ -266,4 +266,8 @@ function respond(ctx) {
   res.end(body);
 }
 ```
-  
+## 总结
+- 先通过use收集中间件，存放到数组中
+- listen方法封装了 http.createServer逻辑，createServer时调用this.callback返回一个回调，这个函数包含了链式调用的逻辑
+- callback函数会执行compose方法，这个方法完成了中间件的连接并返回一个函数
+- compose返回的函数里，通过闭包里的index记录中间件顺序，按顺序执行的同时避免重复调用中间件，直到全部执行完成，过程中try/catch监听错误并返回

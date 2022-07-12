@@ -243,7 +243,7 @@ setTimeout(() => {
 - 关于setTimeout和setImmediate的执行顺序，要看timeout是在哪个阶段添加的
   - 如果是在timer或者poll阶段添加，则属于下个tick的timer，setImmediate先执行；
   - 如果在外层的同步代码，或者setImmediate执行，两者都进入了下个tick，则根据代码执行时间是否超过timer设置的时间判断
-- 关于process.nextTick和Promise，每个阶段队列的单个任务执行完后就会执行nextTick队列，执行完后再执行微任务队列，promise会放在微任务队列中（***注意：旧版的node表现不一致，nextTick和微任务在阶段对应的队列全部执行完后才会执行***）
+- 关于process.nextTick和Promise，每个阶段队列的单个任务执行完后就会执行nextTick队列，执行完后再执行微任务队列，promise会放在微任务队列中（***注意：旧版的node表现不一致，nextTick和微任务在阶段对应的队列（比如多个timer）全部执行完后才会执行***）
 - 什么时候使用process.nextTick？需要在当前代码执行完后，进入下个阶段前执行，比如：
   - 在开发 API 时很重要，可以在构造对象之后但在发生任何 I/O 之前分配事件处理程序
   - 当一些异步api执行同步代码时，可以通过nextTick完全异步化

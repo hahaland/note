@@ -133,7 +133,16 @@ React 16.85的新增属性，在不编写class的情况下使用state等react特
 - 设置`componentDidCatch()`处理错误信息
 - React 16之后，发生错误的组件树会被整个移除
 
+## react 16新特性
+- fiber
+- hook
 
+由于变更了fiber架构，导致一些生命周期钩子不再可靠：
+- componentWillMount
+- componentWillUpdate
+- componentWillReciveProps
+
+上述生命周期执行完成后不一定会立刻更新，有可能因为优先级更高的任务被打断，之后还会再次执行
 ## react 17新特性
 https://zh-hans.reactjs.org/blog/2020/10/20/react-v17.html
 ### jsx的使用
@@ -272,15 +281,19 @@ function handleClick() {
 diff算法，比较新旧虚拟dom，采用递归深度遍历比较节点，完成后对dom进行更新
 ### fiber(新)
 由于diff的不可中断，会导致页面可能被阻塞，因此react采取新的`fiber`架构，将diff和更新分为两个阶段：
-- render
+- reconciler 调度阶段
 
-  原有的diff算法从深度递归改造成异步可中断的遍历，一些概念如下：
+  原有的diff算法从一次性完成深度遍历，改造成异步可中断的遍历，更新的结果使用双缓存记录在一棵映射树（workInProgress树），在递归返回的时候收集effectList
+  
+  一些概念如下：
 
   1、fiber节点的数据结构
     - 节点信息（tag操作类型、key、elementType元素类型、stateNode真实dom节点...）
     - 指针（父节点return、子节点child、兄弟节点sibling、双重缓存对应的节点alternate）
     - 计算state相关的属性（props、dependencies...）
-    - effect相关
+    - effect
+      - nextEffect 指向下个副作用的fiber节点
+      -
     - 优先级相关，schedule执行优先级高的任务
 
   2、diff算法
@@ -289,16 +302,15 @@ diff算法，比较新旧虚拟dom，采用递归深度遍历比较节点，完�
     - key和type相同时可以复用，老节点会根据key或index存放在map中，新节点也根据key去获取，没有再创建新节点
 - commit阶段
 
-  主要是收集effectList进行处理，分三个阶段：
-  - 收集effectList
-  - before mutation： 类组件调用getSnapshotBeforeUpdate（在componentDidUpdate之前），函数类调度usEeffect，在dom变更前获取组件实例信息，
+  分三个阶段：
+  - before mutation： 类组件调用getSnapshotBeforeUpdate（在componentDidUpdate之前），函数类调度useEffect，在dom变更前获取组件实例信息，
   - mutation 执行对应dom操作，并执行useLayoutEffect的销毁函数
   - layout 完成渲染，执行渲染完成的回调，比如componentDidMount、componentDidUpdate、useLayoutEffect
   遍历fiber树，执行对应tag的操作
 
 ### concurrent mode(并发)
 在fiber的基础上
-上述的render阶段没有切片调度的说明，调度由`scheduler`完成，，超过则创建为宏任务
+上述的render阶段没有切片调度的说明，调度由`scheduler`完成，超过则使用`requestIdleCallback`在浏览器空闲时执行
 - scheduler 调度
   - 每一次fiber的diff后会判断执行事件是否超过5ms
   - 超过 则转为宏任务，由浏览器事件队列自行分配
@@ -306,7 +318,7 @@ diff算法，比较新旧虚拟dom，采用递归深度遍历比较节点，完�
 - lane（车道） 即优先级：
 
   同步(flushSync) > 连续事件 > 默认优先级(普通的state更新) > 过渡 > 重试 > 离屏幕
-- 每个任务都有过期时间，过期后会放到taskQuene中优先执行，以保证不会被一直抢占
+- 优先级不同的任务都有不同的过期时间，过期后会视为最高优先级执行优先执行，以保证不会被一直抢占
 
 **总结**
 Fiber -- 增加节点信息，为任务拆分提供基础。
