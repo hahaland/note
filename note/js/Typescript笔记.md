@@ -110,6 +110,51 @@ function func(value: unknown) {
     }
 ```
 
+### 重载
+
+可以给一个方法定义不同的输入输出，可以解决Typescript里同个方法处理不同类型参数的问题
+
+**需要注意，重载无关实际函数的实现，只会影响调用处代码的类型推断**
+```javascript
+  // 重载，根据外部传入的值选择相应声明
+  function fn(num: number): number;
+  function fn(str: string): string;
+  // 内部实现的声明
+  function fn(value: string | number): string | number {
+      if (typeof value === 'number') {
+          // 这里return 其他类型并不会报错
+          return value + 1
+      } else {
+          return value
+      }
+  }
+
+  export default fn
+
+```
+
+### 参数匹配控制
+当我们想控制参数之间的关系时，可以通过数组析构的方式，给参数类型分组：
+```typescript
+
+  type Func = (...args: ["a", number] | ["b", string]) => void;
+
+  const f1: Func = (kind, payload) => {
+      // 需要注意 kind只能是常量，如果a换成类型，使用typeof判断是无法推断的
+      if (kind === "a") {
+          payload.toFixed();  // 'payload' narrowed to 'number'
+      }
+      if (kind === "b") {
+          payload.toUpperCase();  // 'payload' narrowed to 'string'
+      }
+  };
+```
+
+
+参考：
 [TypeScript 高级用法](https://juejin.cn/post/6926794697553739784)
 
+[深入理解TypeScript](https://jkchao.github.io/typescript-book-chinese/typings/functions.html)
+
 [深入理解 TypeScript 高级用法](https://zhuanlan.zhihu.com/p/136254808)
+
