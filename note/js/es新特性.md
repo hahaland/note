@@ -133,6 +133,7 @@ for (let [key, value] of map) {
     String.fromCodePoint(0x20BB7)
     // "𠮷"
   ```
+  予以出组。患者自愿参加“一项2期研究”，于2010年
 - codePointAt: 获取字符的编码（相比charCodeAt可以获取大于16位的字符）
   ```javascript
     var s = "𠮷";
