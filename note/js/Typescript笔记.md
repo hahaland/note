@@ -133,8 +133,8 @@ function func(value: unknown) {
 
 ```
 
-### 参数匹配控制
-当我们想控制参数之间的关系时，可以通过数组析构的方式，给参数类型分组：
+### 条件推断
+可以通过数组析构的方式，给参数类型分组，类型推断根据条件语句推断出正确类型：
 ```typescript
 
   type Func = (...args: ["a", number] | ["b", string]) => void;
