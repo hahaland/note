@@ -116,11 +116,11 @@ export function createRoot(
 - 调用`listenToAllSupportedEvents`，绑定事件
 
 ### createContainer
-源码通过 `enableNewReconciler` 来区分使用新的 fiber 还是旧的 Reconciler，先看下新的
+源码通过 `enableNewReconciler` 来区分使用新的 fiber 还是旧的 Reconciler，先看下新的Fiber
 
 ```javascript
 // ReactFiberReconciler.new.js
-export function createContainer(
+function createContainer(
   containerInfo: Container,
   tag: RootTag,
   hydrationCallbacks: null | SuspenseHydrationCallbacks,
@@ -146,7 +146,7 @@ export function createContainer(
   );
 }
 
-export function createFiberRoot(
+function createFiberRoot(
   containerInfo: Container,
   tag: RootTag,
   hydrate: boolean,
@@ -179,8 +179,7 @@ export function createFiberRoot(
     root.transitionCallbacks = transitionCallbacks;
   }
 
-  // Cyclic construction. This cheats the type system right now because
-  // stateNode is any.
+  // 创建Fiber根节点
   const uninitializedFiber = createHostRootFiber(
     tag,
     isStrictMode,
@@ -220,6 +219,21 @@ export function createFiberRoot(
   initializeUpdateQueue(uninitializedFiber);
 
   return root;
+}
+
+function createHostRootFiber(
+  tag: RootTag,
+  isStrictMode: boolean,
+  concurrentUpdatesByDefaultOverride: null | boolean,
+): Fiber {
+  let mode;
+  
+  /**
+   * 关于mode的设置, 略
+   */
+
+  // 创建Fiber根节点
+  return createFiber(HostRoot, null, null, mode);
 }
 ```
 ## useState相关
